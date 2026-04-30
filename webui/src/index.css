@@ -1,0 +1,114 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── 全局基础 ── */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Noto Sans SC', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── 滚动条 ── */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #374151;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #4b5563;
+}
+
+/* ── Markdown 渲染 ── */
+
+.prose-mainfold {
+  @apply text-gray-200 leading-relaxed;
+}
+
+.prose-mainfold p {
+  @apply mb-3;
+}
+
+.prose-mainfold code {
+  @apply bg-gray-800 text-primary-300 px-1.5 py-0.5 rounded text-sm;
+}
+
+.prose-mainfold pre {
+  @apply bg-gray-900 border border-gray-800 rounded-lg p-4 mb-3 overflow-x-auto;
+}
+
+.prose-mainfold pre code {
+  @apply bg-transparent px-0 py-0;
+}
+
+.prose-mainfold ul,
+.prose-mainfold ol {
+  @apply mb-3 pl-6;
+}
+
+.prose-mainfold li {
+  @apply mb-1;
+}
+
+.prose-mainfold h1,
+.prose-mainfold h2,
+.prose-mainfold h3 {
+  @apply text-primary-200 font-semibold mb-2;
+}
+
+.prose-mainfold h1 {
+  @apply text-xl;
+}
+
+.prose-mainfold h2 {
+  @apply text-lg;
+}
+
+.prose-mainfold h3 {
+  @apply text-base;
+}
+
+.prose-mainfold blockquote {
+  @apply border-l-2 border-primary-600 pl-4 italic text-gray-400 mb-3;
+}
+
+.prose-mainfold table {
+  @apply w-full mb-3;
+}
+
+.prose-mainfold th,
+.prose-mainfold td {
+  @apply border border-gray-700 px-3 py-2 text-sm;
+}
+
+.prose-mainfold th {
+  @apply bg-gray-800 text-primary-200;
+}
+
+/* ── 推理折叠块（DeepSeek R1 reasoning_content）── */
+
+.reasoning-block {
+  @apply border-l-2 border-yellow-600 bg-gray-900/50 pl-3 pr-2 py-2 mb-2 rounded-r text-sm;
+}
+
+.reasoning-toggle {
+  @apply flex items-center gap-1 text-xs text-yellow-500 cursor-pointer hover:text-yellow-400 mb-1;
+}

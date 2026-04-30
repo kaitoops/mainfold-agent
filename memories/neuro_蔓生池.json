@@ -1,0 +1,331 @@
+{
+  "meta": {
+    "version": "1.7",
+    "total_nodes": 5,
+    "total_batches": 0,
+    "last_hash": "61725d114f4008105945e3e6d1e4103a",
+    "created": "2026-04-26T13:46:42.429Z",
+    "updated_at": "2026-04-26T13:46:42.430Z",
+    "蔓生_counter": 0,
+    "mp_spec_summary": {
+      "formula": "tri_score = N × min(O,C) × (1 - |O-C|) × Q",
+      "chaos_ratio": 0.15,
+      "commands": ["/寻路","/有序调节器","/偏天才","/偏疯子","/太敏感","/太迟钝","/太挤了","/太空了","/平衡度","/参数履历","/自动驾驶"],
+      "health_thresholds": {"threshold_pairs": 2},
+      "pathfind_session": {"max_probes": 5, "result_types": ["A","B","C","exited"]},
+      "user_protocol": "WORKBUDDY_MP_USER_INTERFACE.md v1.7",
+      "test_results": "v1.6: 59/59 ✅, v1.7 PATHFIND: 57/57 ✅"
+    }
+  },
+  "nodes": {
+    "anchor1": {
+      "head": "测试锚点：对称性支配守恒量",
+      "body": "测试锚点：对称性支配守恒量",
+      "tags": [
+        "测试"
+      ],
+      "source": "human_seed",
+      "anchor_type": "meaningful",
+      "parent_hash": null,
+      "generation_method": null,
+      "anchor_preservation_score": 1,
+      "next_hashes": [],
+      "depth": 0,
+      "meta": {
+        "created_at": "2026-04-26T13:46:42.429Z",
+        "last_access": "2026-04-26T13:46:42.429Z",
+        "access_count": 2,
+        "batch_id": null,
+        "times_activated": 1,
+        "human_rating": "anchor"
+      },
+      "aesthetic_snapshot": "发现：物理定律的对称性支配一切变换中的守恒量",
+      "incoming_refs": 0
+    },
+    "absurd1": {
+      "head": "荒诞：柴犬拿量子盾牌",
+      "body": "荒诞：柴犬拿量子盾牌——不完备性不是缺陷，是特征",
+      "tags": [
+        "荒诞",
+        "量子"
+      ],
+      "source": "absurd_generator",
+      "anchor_type": "absurd_variant",
+      "parent_hash": "anchor1",
+      "generation_method": "macro_jump",
+      "anchor_preservation_score": 0.6,
+      "next_hashes": [],
+      "depth": 1,
+      "meta": {
+        "created_at": "2026-04-26T13:46:42.429Z",
+        "last_access": "2026-04-26T13:46:42.429Z",
+        "access_count": 0,
+        "batch_id": null,
+        "times_activated": 0,
+        "human_rating": null
+      },
+      "aesthetic_snapshot": null,
+      "incoming_refs": 0
+    },
+    "absurd2": {
+      "head": "荒诞：龟仙人晒太阳",
+      "body": "荒诞：龟仙人晒太阳——系统主动停止不是放弃，是等待",
+      "tags": [
+        "荒诞",
+        "哲学"
+      ],
+      "source": "absurd_generator",
+      "anchor_type": "absurd_variant",
+      "parent_hash": "anchor1",
+      "generation_method": "macro_jump",
+      "anchor_preservation_score": 0.5,
+      "next_hashes": [],
+      "depth": 1,
+      "meta": {
+        "created_at": "2026-04-26T13:46:42.429Z",
+        "last_access": "2026-04-26T13:46:42.429Z",
+        "access_count": 0,
+        "batch_id": null,
+        "times_activated": 0,
+        "human_rating": null
+      },
+      "aesthetic_snapshot": null,
+      "incoming_refs": 0
+    },
+    "absurd3": {
+      "head": "荒诞：鲸鱼跃出语义海面",
+      "body": "荒诞：鲸鱼跃出语义海面——跳出当前层级，从元层重新审视",
+      "tags": [
+        "荒诞",
+        "海洋"
+      ],
+      "source": "absurd_generator",
+      "anchor_type": "converted_absurd",
+      "parent_hash": "anchor1",
+      "generation_method": "macro_jump",
+      "anchor_preservation_score": 0.4,
+      "next_hashes": [],
+      "depth": 1,
+      "meta": {
+        "created_at": "2026-04-26T13:46:42.429Z",
+        "last_access": "2026-04-26T13:46:42.429Z",
+        "access_count": 0,
+        "batch_id": null,
+        "times_activated": 0,
+        "human_rating": null,
+        "converted": true,
+        "converted_hash": "437019c4eedb08fc446c334d4b736f8b",
+        "converted_at": "2026-04-26T13:46:42.429Z"
+      },
+      "aesthetic_snapshot": null,
+      "incoming_refs": 0
+    },
+    "437019c4eedb08fc446c334d4b736f8b": {
+      "head": "凝结核：荒诞：鲸鱼跃出语义海面",
+      "body": "【凝结核 v1.7】来源荒诞：荒诞：鲸鱼跃出语义海面\n起点锚点：完整循环测试锚点\n转化时间：2026-04-26T13:46:42.429Z\n来源哈希：荒诞：鲸鱼跃出语义海面\n触发方式：人类选择 A",
+      "tags": [
+        "凝结核",
+        "荒诞转化",
+        "完整循环测试锚点"
+      ],
+      "source": "condensed_nucleus",
+      "anchor_type": "meaningful",
+      "parent_hash": "荒诞：鲸鱼跃出语义海面",
+      "generation_method": "condensation",
+      "anchor_preservation_score": 0.95,
+      "next_hashes": [],
+      "depth": 0,
+      "meta": {
+        "created_at": "2026-04-26T13:46:42.429Z",
+        "last_access": "2026-04-26T13:46:42.429Z",
+        "access_count": 1,
+        "batch_id": null,
+        "times_activated": 1,
+        "human_rating": "anchor"
+      },
+      "aesthetic_snapshot": null,
+      "incoming_refs": 1,
+      "condensed_from_absurd": "荒诞：鲸鱼跃出语义海面",
+      "condensed_from_anchor": "anchor1",
+      "condensed_session_id": "ad56ecbd4a701367bc286bcb",
+      "condensed_selection": "A"
+    }
+  },
+  "蔓生_batches": {},
+  "flow_registry": {
+    "current_state": "flow",
+    "last_human_intervention": "2026-04-26T13:46:42.429Z",
+    "ordered_anchors": [
+      "437019c4eedb08fc446c334d4b736f8b"
+    ],
+    "chaotic_sparks": [],
+    "flow_history": [
+      {
+        "hash": "437019c4eedb08fc446c334d4b736f8b",
+        "rating": "anchor",
+        "timestamp": "2026-04-26T13:46:42.429Z",
+        "note": "凝结核 from absurd: 荒诞：鲸鱼跃出语义海面"
+      }
+    ],
+    "_ordered_score": 0.5,
+    "_chaotic_score": 0.3,
+    "parameters": {
+      "蔓生_k": 3,
+      "蔓生_depth": 3,
+      "absurdity_level": 0.5,
+      "scales_active": {
+        "micro": true,
+        "meso": true,
+        "macro": true
+      }
+    }
+  },
+  "tri_conjugate": {
+    "current": {
+      "O": 0.5,
+      "C": 0.3,
+      "N": 0.05,
+      "N_baseline": 0.05,
+      "N_effective": 0.05,
+      "N_quality": 0.2,
+      "resonance_width": 0.2,
+      "min_OC": 0.3,
+      "intent_alignment": 0.015,
+      "tri_score": 0.00225,
+      "tri_state": "COLLAPSE",
+      "switch_cost": 0.625,
+      "state_transition": {
+        "previous": null,
+        "current": "COLLAPSE",
+        "trigger": "init",
+        "timestamp": "2026-04-26T13:46:42.429Z"
+      }
+    },
+    "params": {
+      "N_baseline": 0.05,
+      "O_C_coupling_strength": 1.5,
+      "resonance_target": 0.45
+    },
+    "mode_aware_params": {
+      "ordered": {
+        "baseline_N": 0.05,
+        "O_target": 0.8,
+        "C_target": 0.3,
+        "switch_cost_penalty": 0.05,
+        "step_max": 0.05,
+        "threshold_low": 0.15,
+        "threshold_high": 0.35
+      },
+      "chaotic": {
+        "baseline_N": 0.1,
+        "O_target": 0.3,
+        "C_target": 0.8,
+        "switch_cost_penalty": 0.08,
+        "step_max": 0.15,
+        "threshold_low": 0.15,
+        "threshold_high": 0.35
+      }
+    },
+    "mode_history": [],
+    "switch_cost_history": [
+      1
+    ],
+    "human_override": false,
+    "history": [],
+    "human_intervention_log": [],
+    "meta": {
+      "mode_switch_cost": 0.05,
+      "version": "1.6"
+    }
+  },
+  "trigger_log": [],
+  "chaos_ratio_control": {
+    "current": 0.5,
+    "min": 0.05,
+    "max": 0.95,
+    "auto_range": [
+      0.1,
+      0.2
+    ],
+    "auto_step": 0.03,
+    "human_override_step": 0.1,
+    "human_override_active": false,
+    "auto_enabled": true,
+    "last_human_override": null,
+    "adjustment_log": []
+  },
+  "adaptive_tuning": {
+    "mode_aware": true,
+    "mode": "ordered",
+    "ordered_params": {
+      "baseline_N": 0.05,
+      "step_max": 0.05,
+      "threshold_low": 0.15,
+      "threshold_high": 0.35,
+      "signal_buffer_threshold": 5,
+      "min_utility_threshold": 0.1
+    },
+    "chaotic_params": {
+      "baseline_N": 0.1,
+      "step_max": 0.15,
+      "threshold_low": 0.15,
+      "threshold_high": 0.35,
+      "signal_buffer_threshold": 3,
+      "min_utility_threshold": 0.1
+    },
+    "current_params": {
+      "baseline_N": 0.05,
+      "step_max": 0.05,
+      "threshold_low": 0.15,
+      "threshold_high": 0.35,
+      "k_per_scale": 3,
+      "absurdity_level": 0.5,
+      "deadlock_trigger_threshold": 3,
+      "random_prob_base": 0.05
+    },
+    "signal_buffer": [],
+    "adjustment_log": [],
+    "params_stable": false
+  },
+  "conversation_context": {
+    "current_anchor": "完整循环测试锚点",
+    "current_anchor_hash": "anchor1",
+    "turn_count": 0,
+    "last_discussion_topic": null,
+    "health_signals": {
+      "info_decline_turns": 0,
+      "self_ref_turns": 0,
+      "last_aesthetic_turn": 0,
+      "warning_delivered": false
+    },
+    "pathfind_session": {
+      "id": "ad56ecbd4a701367bc286bcb",
+      "anchor": "完整循环测试锚点",
+      "anchor_hash": "anchor1",
+      "candidates": [
+        "荒诞：鲸鱼跃出语义海面",
+        "荒诞：龟仙人晒太阳"
+      ],
+      "created_at": "2026-04-26T13:46:42.429Z",
+      "selected": "A",
+      "condensed": true,
+      "condensed_hash": "437019c4eedb08fc446c334d4b736f8b"
+    }
+  },
+  "pathfinding_log": [
+    {
+      "timestamp": "2026-04-26T13:46:42.429Z",
+      "session_id": "ad56ecbd4a701367bc286bcb",
+      "anchor": "完整循环测试锚点",
+      "anchor_hash": "anchor1",
+      "candidates": [
+        "荒诞：鲸鱼跃出语义海面",
+        "荒诞：龟仙人晒太阳"
+      ],
+      "human_selection": "A",
+      "selected_absurd": "荒诞：鲸鱼跃出语义海面",
+      "condensed_hash": "437019c4eedb08fc446c334d4b736f8b",
+      "result": "selected"
+    }
+  ]
+}

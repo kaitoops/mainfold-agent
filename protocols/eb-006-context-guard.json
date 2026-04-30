@@ -1,0 +1,32 @@
+{
+  "_meta": {
+    "id": "eb-006-context-guard",
+    "purpose": "EB-006 自检的唯一真相源。自检前必须先读此文件获取最新参数，不得使用记忆中的估算值。",
+    "last_verified": "2026-04-27",
+    "authoritative_source": "~/.workbuddy/harness-system/memory/system-contracts.json → EB-006 合约",
+    "update_rule": "当 system-contracts.json 中 EB-006 参数变更时，同步更新此文件"
+  },
+  "window_config": {
+    "capacity_tokens": 200000,
+    "capacity_label": "200K",
+    "safety_threshold_percent": 75,
+    "safety_threshold_tokens": 150000,
+    "optimization_suggest_percent": 60,
+    "optimization_suggest_tokens": 120000,
+    "critical_percent": 90,
+    "critical_tokens": 180000
+  },
+  "thresholds": {
+    "green": { "max_percent": 60, "action": "正常执行" },
+    "yellow": { "min_percent": 60, "max_percent": 75, "action": "输出优化建议" },
+    "orange": { "min_percent": 75, "max_percent": 90, "action": "强制优化或拆分任务" },
+    "red": { "min_percent": 90, "action": "必须拆分或延期执行" }
+  },
+  "self_check_sop": {
+    "step_1": "读取本文件（eb-006-context-guard.json）获取最新参数",
+    "step_2": "估算当前会话已用 TOKEN 量",
+    "step_3": "计算实际占用率 = 已用 / capacity_tokens",
+    "step_4": "对照 thresholds 判断状态",
+    "step_5": "输出自检报告"
+  }
+}

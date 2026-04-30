@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hermes + MemPalace 重写规划：10轮流形导航分析</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; background: #0d0d12; color: #e0e0e8; line-height: 1.7; font-size: 15px; }
+  .container { max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem; }
+  h1 { font-size: 1.8rem; color: #ffd700; margin-bottom: 0.5rem; font-weight: 700; letter-spacing: -0.5px; }
+  .subtitle { color: #888; font-size: 0.95rem; margin-bottom: 2.5rem; border-bottom: 1px solid #2a2a35; padding-bottom: 1.5rem; }
+  h2 { font-size: 1.15rem; color: #ffd700; margin: 2.5rem 0 1rem; padding-left: 0.8rem; border-left: 3px solid #ffd700; }
+  h3 { font-size: 1rem; color: #ff9d00; margin: 1.5rem 0 0.7rem; }
+  h4 { font-size: 0.9rem; color: #b0b0c0; margin: 1rem 0 0.5rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+  p { margin: 0.6rem 0; }
+  strong { color: #ffd700; }
+  code { background: #1a1a24; color: #7ec8e3; padding: 0.15em 0.4em; border-radius: 3px; font-size: 0.88em; font-family: 'Cascadia Code', 'Consolas', monospace; }
+  pre { background: #13131c; border: 1px solid #2a2a35; border-radius: 6px; padding: 1rem; margin: 1rem 0; overflow-x: auto; font-size: 0.85em; line-height: 1.5; }
+  pre code { background: none; padding: 0; }
+  .round-header { display: flex; align-items: center; gap: 1rem; margin: 2.5rem 0 1rem; }
+  .round-badge { background: linear-gradient(135deg, #ffd700, #ff9d00); color: #0d0d12; font-weight: 700; font-size: 0.8rem; padding: 0.25rem 0.7rem; border-radius: 20px; white-space: nowrap; }
+  .round-title { font-size: 1.05rem; color: #e0e0e8; font-weight: 600; }
+  .round-tag { font-size: 0.75rem; color: #666; padding: 0.2rem 0.5rem; border: 1px solid #333; border-radius: 4px; }
+  .insight-box { background: #0f1a12; border: 1px solid #1a3a1a; border-left: 3px solid #3d8c3d; border-radius: 4px; padding: 0.8rem 1rem; margin: 0.8rem 0; }
+  .warning-box { background: #1a1208; border: 1px solid #3a2a0a; border-left: 3px solid #ffd700; border-radius: 4px; padding: 0.8rem 1rem; margin: 0.8rem 0; }
+  .danger-box { background: #1a0a0a; border: 1px solid #3a1a1a; border-left: 3px solid #c0392b; border-radius: 4px; padding: 0.8rem 1rem; margin: 0.8rem 0; }
+  .phase-box { background: #0a1020; border: 1px solid #1a2a4a; border-radius: 6px; padding: 1rem 1.2rem; margin: 1rem 0; }
+  table { width: 100%; border-collapse: collapse; margin: 0.8rem 0; font-size: 0.88em; }
+  th { background: #1a1a24; color: #ffd700; padding: 0.6rem 0.8rem; text-align: left; border: 1px solid #2a2a35; font-weight: 600; }
+  td { padding: 0.5rem 0.8rem; border: 1px solid #1e1e28; }
+  tr:nth-child(even) td { background: #111118; }
+  tr:nth-child(odd) td { background: #0d0d14; }
+  .coupling-group { background: #0f0f18; border: 1px solid #2a2a38; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+  .node { display: inline-block; background: #1a1a28; border: 1px solid #3a3a50; border-radius: 4px; padding: 0.3rem 0.7rem; margin: 0.25rem; font-size: 0.82em; color: #a0d0f0; }
+  .arrow { color: #555; font-size: 0.9em; vertical-align: middle; }
+  .phase { background: linear-gradient(135deg, #0f0f1a 0%, #1a1025 100%); border: 1px solid #3a2a5a; border-radius: 10px; padding: 1.5rem; margin: 1.5rem 0; }
+  .phase-num { display: inline-block; background: #3a2a5a; color: #c0a0ff; font-weight: 700; font-size: 0.75rem; padding: 0.2rem 0.6rem; border-radius: 10px; margin-bottom: 0.5rem; }
+  .phase h3 { color: #d0b0ff; margin-top: 0; }
+  .phase-duration { color: #888; font-size: 0.82em; margin-bottom: 0.8rem; }
+  .rule-box { background: #1a0a2a; border: 1px solid #4a1a6a; border-radius: 6px; padding: 1rem; margin: 0.8rem 0; }
+  .rule-box strong { color: #d080ff; }
+  .divider { border: none; border-top: 1px solid #1e1e28; margin: 2rem 0; }
+  .verdict { text-align: center; padding: 1.5rem; margin: 1.5rem 0; background: linear-gradient(135deg, #0a1a0a, #0f2020); border: 1px solid #2a4a2a; border-radius: 10px; }
+  .score { font-size: 3rem; font-weight: 700; color: #3d8c3d; }
+</style>
+</head>
+<body>
+<div class="container">
+<h1>Hermes + MemPalace 完全重写规划</h1>
+<div class="subtitle">
+  10轮流形导航对抗分析 · 2026-04-28 · 框架版
+  <br><span style="color:#555; font-size:0.85em;">上层框架细节全保留 · 下层实现彻底重构 · 禁止复制粘贴遗留代码</span>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- 耦合群扫描 -->
+<!-- ═══════════════════════════════════════════ -->
+<h2>耦合群扫描（5节点边界规则）</h2>
+
+<div class="coupling-group">
+  <h4>耦合群 A — 状态协调（已理解）</h4>
+  <code class="node">tri_hermes.py</code> <span class="arrow">⟷</span>
+  <code class="node">hermes-core.json</code> <span class="arrow">⟷</span>
+  <code class="node">health_ratio_control</code> <span class="arrow">⟷</span>
+  <code class="node">signal()</code> <span class="arrow">⟷</span>
+  <code class="node">_auto_adjust()</code>
+  <p style="color:#666; font-size:0.82em; margin-top:0.5rem;">
+    重构方向：JSON持久化 → 内存优先+惰性持久化，信号驱动而非轮询。hermes-core.json废弃。
+  </p>
+</div>
+
+<div class="coupling-group">
+  <h4>耦合群 B — 身份注入链（根因所在）</h4>
+  <code class="node">prompt_builder.py</code> <span class="arrow">⟷</span>
+  <code class="node">SOUL.md</code> <span class="arrow">⟷</span>
+  <code class="node">run_agent.py</code> <span class="arrow">⟷</span>
+  <code class="node">run.py (Gateway)</code> <span class="arrow">⟷</span>
+  <code class="node">_FALLBACK_IDENTITY</code>
+  <p style="color:#c0392b; font-size:0.82em; margin-top:0.5rem;">
+    重构方向：5层抽象 → 1层。Backend直接加载SOUL.md，单次幂等注入。WebUI绕过问题是根因。
+  </p>
+</div>
+
+<div class="coupling-group">
+  <h4>耦合群 C — MemPalace记忆系统（核心资产）</h4>
+  <code class="node">knowledge_graph.py</code> <span class="arrow">⟷</span>
+  <code class="node">entity_registry</code> <span class="arrow">⟷</span>
+  <code class="node">entity_detector</code> <span class="arrow">⟷</span>
+  <code class="node">convo_miner</code> <span class="arrow">⟷</span>
+  <code class="node">normalize.py</code>
+  <p style="color:#666; font-size:0.82em; margin-top:0.5rem;">
+    重构方向：保留算法逻辑，接口改用TypeScript。43文件中最有价值部分，但被耦合到Nous MCP架构。完全重写需扫描全部43文件的import依赖。
+  </p>
+</div>
+
+<div class="coupling-group">
+  <h4>耦合群 D — WebUI API层（根因所在）</h4>
+  <code class="node">/api/chat</code> <span class="arrow">⟷</span>
+  <code class="node">/api/health</code> <span class="arrow">⟷</span>
+  <code class="node">provider选择</code> <span class="arrow">⟷</span>
+  <code class="node">normalize_model</code> <span class="arrow">⟷</span>
+  <code class="node">httpx客户端</code>
+  <p style="color:#c0392b; font-size:0.82em; margin-top:0.5rem;">
+    重构方向：ChatRequest加入system_prompt字段，Backend自加载SOUL.md构建。provider路由简化为DeepSeek单一目标。
+  </p>
+</div>
+
+<div class="coupling-group">
+  <h4>耦合群 E — 会话记忆持久层（重叠/待定）</h4>
+  <code class="node">session_history</code> <span class="arrow">⟷</span>
+  <code class="node">memory_tool</code> <span class="arrow">⟷</span>
+  <code class="node">session_search</code> <span class="arrow">⟷</span>
+  <code class="node">MEMORY.md</code> <span class="arrow">⟷</span>
+  <code class="node">builtin_memory_provider</code>
+  <p style="color:#666; font-size:0.82em; margin-top:0.5rem;">
+    重构方向：会话历史改为内存LRU缓存（1M窗口够用）。持久化目标改为MemPalace知识图谱。
+  </p>
+</div>
+
+<hr class="divider">
+
+<!-- Round 1 -->
+<div class="round-header">
+  <span class="round-badge">Round 1</span>
+  <span class="round-title">架构分解 — L0 元层</span>
+  <span class="round-tag">技术</span>
+</div>
+
+<div class="insight-box">
+  <strong>自我诊断：132工具 ≠ 强大，127个是债务</strong><br>
+  <table>
+    <tr><th>层次</th><th>内容</th><th>价值</th></tr>
+    <tr><td>L0 元层</td><td>系统架构决策</td><td>开发者视角</td></tr>
+    <tr><td>L1 工具层</td><td>132工具+402skills</td><td>❌ 债务</td></tr>
+    <tr><td>L2 身份层</td><td>SOUL.md+TRI-Hermes</td><td>✅ 核心</td></tr>
+    <tr><td>L3 用户层</td><td>WebUI</td><td>⚠️ 满足主人需求</td></tr>
+  </table>
+  真正的核心工具：memory, session_search, web_search, file_operations, execute_code（5个）。其余127个是Notre遗产。
+</div>
+
+<!-- Round 2 -->
+<div class="round-header">
+  <span class="round-badge">Round 2</span>
+  <span class="round-title">用户需求映射</span>
+  <span class="round-tag">需求</span>
+</div>
+
+<div class="danger-box">
+  <strong>核心矛盾：主人（你）≠ WebUI人类用户</strong><br>
+  主人需要：MemPalace记忆+流形导航+课题持久化。<br>
+  WebUI用户需要：快速聊天。<br>
+  当前架构混在一起，导致身份注入成为"顺便"而非"核心"。
+  <strong>重写方向：主人需求为第一优先级，WebUI是MemPalace的可视化调试工具。</strong>
+</div>
+
+<!-- Round 3 -->
+<div class="round-header">
+  <span class="round-badge">Round 3</span>
+  <span class="round-title">约束识别</span>
+  <span class="round-tag">约束</span>
+</div>
+
+<div class="phase-box">
+  <strong>真正约束（不可违反）</strong>：DeepSeek V4 API规范 · MemPalace算法逻辑 · 1M上下文上限 · 主人课题数据（只读迁移）· WORKBUDDY MCP兼容性
+  <br><br>
+  <strong>伪约束（可打破）</strong>：
+  <table>
+    <tr><th>伪约束</th><th>打破方式</th></tr>
+    <tr><td>必须维护WSL</td><td>Windows原生，单一.exe</td></tr>
+    <tr><td>必须保留skills生态</td><td>只迁移<5个真正需要的</td></tr>
+    <tr><td>Gateway 7620行保留</td><td>完全放弃，重写Backend</td></tr>
+    <tr><td>hermes-core.json真相源</td><td>废弃，改为SOUL.md+MemPalace KG</td></tr>
+  </table>
+</div>
+
+<!-- Round 4 -->
+<div class="round-header">
+  <span class="round-badge">Round 4</span>
+  <span class="round-title">失效模式分析</span>
+  <span class="round-tag">风险</span>
+</div>
+
+<div class="danger-box">
+  <strong>今晚已发生的崩溃链</strong><br>
+  sed截断WSL config.yaml → Agent裸跑API → DeepSeek默认身份<br>
+  根因：双文件架构（Windows+WSL），无同步验证，无启动断言。
+</div>
+<div class="insight-box">
+  <strong>新系统预防设计</strong>：
+  <table>
+    <tr><th>失效模式</th><th>旧处理</th><th>新设计</th></tr>
+    <tr><td>system_prompt丢失</td><td>无验证，裸跑</td><td>启动时断言，失败则退出</td></tr>
+    <tr><td>MemPalace损坏</td><td>无备份</td><td>启动时自动备份</td></tr>
+    <tr><td>API key失效</td><td>降级到默认身份</td><td>显式告警</td></tr>
+    <tr><td>记忆注入过大</td><td>无截断</td><td>明确token预算</td></tr>
+  </table>
+</div>
+
+<!-- Round 5 -->
+<div class="round-header">
+  <span class="round-badge">Round 5</span>
+  <span class="round-title">生态位分析</span>
+  <span class="round-tag">生态</span>
+</div>
+
+<div class="insight-box">
+  <strong>关键生态位决策</strong>
+  <ul style="margin-left:1.5rem;">
+    <li>Hermes+MemPalace <strong>不是独立产品</strong>，是WORKBUDDY的"记忆+推理执行引擎"</li>
+    <li>MemPalace <strong>不是工具</strong>，是架构原则——记忆无处不在，注入到每个请求</li>
+    <li>TRI-Hermes <strong>不是监控面板</strong>，是A×S×H驱动的自我调节机制</li>
+    <li>WebUI <strong>不是前端产品</strong>，是MemPalace的可视化调试工具（主人视角）</li>
+  </ul>
+</div>
+
+<!-- Round 6 -->
+<div class="round-header">
+  <span class="round-badge">Round 6</span>
+  <span class="round-title">决策空间</span>
+  <span class="round-tag">架构</span>
+</div>
+
+<div class="phase-box">
+  <table>
+    <tr><th>决策点</th><th>推荐</th><th>理由</th></tr>
+    <tr><td>Backend语言</td><td><strong>Node.js</strong></td><td>与WebUI同构，JSON原生，Windows原生</td></tr>
+    <tr><td>记忆存储</td><td><strong>SQLite+MemPalace索引</strong></td><td>JSON太慢，纯内存丢数据</td></tr>
+    <tr><td>API注入方式</td><td><strong>幂等转换</strong></td><td>SOUL.md→system_prompt单次转换+缓存</td></tr>
+    <tr><td>MemPalace集成</td><td><strong>内嵌第一公民</strong></td><td>不再是MCP远程调用，零网络开销</td></tr>
+    <tr><td>启动方式</td><td><strong>单一.exe</strong></td><td>消除WSL+venv所有环境依赖</td></tr>
+  </table>
+</div>
+
+<!-- Round 7 -->
+<div class="round-header">
+  <span class="round-badge">Round 7</span>
+  <span class="round-title">假设质疑</span>
+  <span class="round-tag">质疑</span>
+</div>
+
+<div class="insight-box"><strong>假设1：MemPalace必须保持Python</strong><br>❌ 直觉：重写会失去兼容性。<br>✅ 挑战：核心算法（entity_detector正则、convo_miner提取规则）是纯数学变换，TypeScript可重写。算法逻辑才是核心，编程语言只是载体。</div>
+<div class="insight-box"><strong>假设2：WebUI必须保留React</strong><br>❌ 直觉：只重写Backend，前端不改。<br>✅ 挑战：当前WebUI是为"聊天产品"设计，不是"MemPalace调试工具"。新WebUI = MemPalace Dashboard + 最小聊天。主人需要看TRI-Hermes状态、记忆注入量、会话图谱。</div>
+<div class="insight-box"><strong>假设3：流形导航必须作为独立模块</strong><br>❌ 直觉：高级功能，单独实现。<br>✅ 挑战：流形导航不是"模块"，是SOUL.md的叙事原则。每个system prompt构建都内置了流形导航的思维方式。模块化反而限制渗透力。</div>
+<div class="insight-box"><strong>假设4：hermes-core.json需要保留</strong><br>❌ 直觉：之前的架构决定，继续遵守。<br>✅ 挑战：hermes-core.json是Nous遗产的遗迹，存储Gateway配置，不是MemPalace状态。真相源 = SOUL.md（身份）+ MemPalace KG（记忆）+ TRI-Hermes（状态）。完全废弃。</div>
+
+<!-- Round 8 -->
+<div class="round-header">
+  <span class="round-badge">Round 8</span>
+  <span class="round-title">架构合成</span>
+  <span class="round-tag">设计</span>
+</div>
+
+<div class="phase-box">
+  <pre style="font-size:0.78em; white-space:pre-wrap;">
+WORKBUDDY ──MCP──→ Hermes.Backend (Node.js)
+                     │
+WebUI (React) ───→ │
+                     │
+           ┌────────┴────────┐
+           │                 │
+      TRI-Hermes        MemPalace
+      (状态协调)        (记忆系统)
+           │                 │
+           │          ┌──────┴──────┐
+           │          │             │
+           │    KnowledgeGraph  SessionCache
+           │    (实体+关系)    (1M窗口)
+           └──────────┼────────────────┘
+                      │
+              DeepSeek V4 API
+              (system_prompt + MemPalace injection)
+                      │
+           MemPalace增量挖掘 ← 响应
+           (convo_miner + entity_detector)
+                      │
+           KnowledgeGraph更新（增量）
+  </pre>
+  <table>
+    <tr><th>特性</th><th>旧实现</th><th>新实现</th></tr>
+    <tr><td>身份注入</td><td>5层抽象，WebUI绕过</td><td>Backend单层，启动断言</td></tr>
+    <tr><td>状态协调</td><td>TRI+hermes-core.json</td><td>TRI内存态+SQLite惰性持久</td></tr>
+    <tr><td>记忆存储</td><td>hermes-core.json+MEMORY.md</td><td>SQLite(MemPalace KG)</td></tr>
+    <tr><td>会话历史</td><td>WSL sessions/*.json</td><td>内存LRU缓存（1M够用）</td></tr>
+    <tr><td>MemPalace</td><td>MCP远程调用</td><td>直接import（零开销）</td></tr>
+    <tr><td>启动依赖</td><td>WSL+venv+Python</td><td>单一.exe（无WSL）</td></tr>
+  </table>
+</div>
+
+<!-- Round 9 -->
+<div class="round-header">
+  <span class="round-badge">Round 9</span>
+  <span class="round-title">对抗压测</span>
+  <span class="round-tag">压测</span>
+</div>
+
+<div class="danger-box"><strong>攻击1：MemPalace算法迁移失败</strong><br>防御：保留现有Python作为参照实现，先写算法等价性测试，再切换。</div>
+<div class="danger-box"><strong>攻击2：Node.js不支持MemPalace依赖</strong><br>防御：Step 1.2先扫描43文件的所有import。有numpy/pandas → Python子进程；无 → TypeScript直接重写。</div>
+<div class="danger-box"><strong>攻击3：旧MemPalace数据格式不兼容</strong><br>防御：Phase 1第一步就写迁移脚本，验证旧JSON → 新SQLite的完整性。</div>
+<div class="danger-box"><strong>攻击4：WebUI重写工作量低估</strong><br>防御：Phase 1 WebUI限制为"最小可行"（聊天+健康），TRI Dashboard放Phase 2。</div>
+<div class="danger-box"><strong>攻击5："5节点扫描规则"执行不下去</strong><br>防御：CI自动扫描git diff，禁止引入hermes-agent/路径。任何复制旧代码的PR自动拒绝。</div>
+
+<!-- Round 10 -->
+<div class="round-header">
+  <span class="round-badge">Round 10</span>
+  <span class="round-title">执行规格</span>
+  <span class="round-tag">执行</span>
+</div>
+
+<div class="phase">
+  <div class="phase-num">Phase 1 · 止血</div>
+  <h3>止血 + 新Backend上线</h3>
+  <div class="phase-duration">目标：今晚可用，明天可验证 · 8小时</div>
+  <table>
+    <tr><th>Step</th><th>内容</th><th>时间</th></tr>
+    <tr><td>1.1</td><td>修改/api/chat：加入system_prompt注入，Backend自加载SOUL.md</td><td>30分钟</td></tr>
+    <tr><td>1.2</td><td>扫描43个MemPalace Python的import，分类（纯标准库/Python子进程/可TS替代）</td><td>1小时</td></tr>
+    <tr><td>1.3</td><td>Node.js+Express骨架：SOUL.md加载幂等缓存+MemPalace SQLite初始化+TRI内存态+/api/chat|/api/health|/api/tri</td><td>4小时</td></tr>
+    <tr><td>1.4</td><td>数据迁移脚本：旧MemPalace JSON→新SQLite，hermes-core.json→TRI状态，验证完整性</td><td>2小时</td></tr>
+  </table>
+  <div class="rule-box"><strong>验收标准</strong>：新Backend接管WebUI → Agent自我认知正确 → TRI-Hermes状态可见 → 流形导航叙事正常注入</div>
+</div>
+
+<div class="phase">
+  <div class="phase-num">Phase 2 · 重构</div>
+  <h3>MemPalace原生化 + WSL消除</h3>
+  <div class="phase-duration">目标：MemPalace成为Backend一等公民 · 2天</div>
+  <table>
+    <tr><th>Step</th><th>内容</th><th>时间</th></tr>
+    <tr><td>2.1</td><td>MemPalace算法重写（5节点扫描+完全重构）：knowledge_graph+entity_registry+entity_detector+convo_miner+normalize → TypeScript，保留算法逻辑，实体检测：正则→Trie树，KG：JSON→SQLite</td><td>1天</td></tr>
+    <tr><td>2.2</td><td>TRI-Hermes重写：从hermes-core.json解耦，内存态+SQLite惰性持久，signal机制保留，API改TS</td><td>3小时</td></tr>
+    <tr><td>2.3</td><td>WSL完全消除：停止Gateway，验证新Backend接管，删除hermes-agent/Gateway+CLI，删除WSL /root/.hermes/目录（会话已迁移）</td><td>4小时</td></tr>
+  </table>
+  <div class="rule-box"><strong>验收标准</strong>：WSL关闭 → 新系统接管 → MemPalace正常 → TRI-Hermes响应</div>
+</div>
+
+<div class="phase">
+  <div class="phase-num">Phase 3 · 完善</div>
+  <h3>流形导航内化 + MCP协议 + 打包</h3>
+  <div class="phase-duration">目标：真正生产系统 · 3天</div>
+  <table>
+    <tr><th>Step</th><th>内容</th><th>时间</th></tr>
+    <tr><td>3.1</td><td>流形导航内化：非独立模块，而是SOUL.md叙事结构。新SOUL.md：五锚点叙事→system prompt构建模板。MemPalace快照+TRI状态作为每轮system prompt的三要素</td><td>1天</td></tr>
+    <tr><td>3.2</td><td>MCP协议：MemPalace MCP Server（记忆查询/实体搜索/话题追踪），WORKBUDDY可通过MCP调用，HTTP API保留备选</td><td>1天</td></tr>
+    <tr><td>3.3</td><td>打包：Node.js+TS → Windows.exe（pkg或nexe），MemPalace Python算法作为Node.js addon或子进程。hermes-core.json正式废弃</td><td>1天</td></tr>
+  </table>
+  <div class="rule-box"><strong>验收标准</strong>：单个.exe启动 → WORKBUDDY MCP调用正常 → MemPalace记忆检索正常</div>
+</div>
+
+<hr class="divider">
+
+<!-- 核心规则固化 -->
+<h2>核心规则：禁止遗留代码渗透</h2>
+
+<div class="rule-box">
+  <h4>规则1 — 5节点耦合扫描协议（强制执行）</h4>
+  每次扫描到任何功能模块时：<br>
+  ① 找到该模块耦合的其他模块（以5个为一次扫描窗口）<br>
+  ② 分析这5个模块的耦合关系（数据流/控制流/状态共享）<br>
+  ③ 理解这组耦合的<strong>功能目标</strong>（不是代码做什么，而是共同实现什么）<br>
+  ④ 完全重构，用新语言/新架构实现，<strong>禁止复制任何代码</strong><br>
+  ⑤ 写"算法等价性测试"验证新旧输出一致
+</div>
+
+<div class="rule-box">
+  <h4>规则2 — 禁止的路径模式（CI自动检查）</h4>
+  <pre><code># 以下路径的文件内容禁止出现在新项目任何.ts/.js文件中：
+G:/Hermes/hermes-agent/       # Nous遗产核心
+/mnt/g/Hermes/hermes-agent/ # WSL路径
+/root/.hermes/              # WSL Hermes Home
+run_agent.py                # 465KB Nous遗产
+gateway/run.py              # 7620行 Nous遗产
+
+# 触发：git diff中出现上述路径 → 自动拒绝合并</code></pre>
+</div>
+
+<div class="rule-box">
+  <h4>规则3 — MemPalace例外条款（参照≠来源）</h4>
+  MemPalace的Python文件是<strong>算法参照</strong>，不是代码来源。<br>
+  允许：读取算法逻辑（entity正则模式、convo_miner提取规则）、理解数据结构（KG节点/边格式）<br>
+  禁止：复制文件、复制函数、复制类定义<br>
+  必须：理解功能目标 → 从零重写 → 算法等价性测试
+</div>
+
+<div class="rule-box">
+  <h4>规则4 — SOUL.md守卫协议</h4>
+  SOUL.md是唯一合法身份来源。任何system_prompt构建必须：<br>
+  启动时加载SOUL.md并验证非空 → 失败则启动失败（不降级）<br>
+  system_prompt = SOUL.md叙事 + MemPalace快照 + TRI-Hermes状态<br>
+  <strong>禁止任何hardcoded fallback身份文本</strong>
+</div>
+
+<hr class="divider">
+
+<div class="verdict">
+  <div class="score">Rewrite</div>
+  <p style="color:#888; margin-top:0.5rem;">Fix的TOKEN成本长期看更高 · Nous遗产的认知税无法消除</p>
+</div>
+
+<div class="phase-box" style="text-align:center;">
+  <p style="font-size:1.1em; color:#ffd700; margin-bottom:0.8rem;"><strong>核心判断</strong></p>
+  <p style="color:#b0b0c0; max-width:700px; margin:0 auto;">
+    Hermes+MemPalace的价值在于<strong>MemPalace记忆架构</strong>和<strong>主人的课题数据</strong>，不在于Nous遗产的132工具+7620行Gateway代码。
+    重写的本质是<strong>把MemPalace从Nous框架里解放出来</strong>，让它成为真正的第一公民。
+  </p>
+  <p style="color:#666; margin-top:1rem; font-size:0.85em;">
+    Phase 1止血（8小时）→ Phase 2重构（2天）→ Phase 3完善（3天）<br>
+    总工程量：约5个工作日 · 完全消除WSL依赖 · 单一.exe可执行
+  </p>
+</div>
+
+</div>
+</body>
+</html>
