@@ -12,3 +12,6 @@ Thumbs.db
 
 # Runtime logs
 **/sicr-logs/
+
+# Standalone packaged build (one-time artifact, not used for dev)
+out/
