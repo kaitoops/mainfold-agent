@@ -36,6 +36,7 @@ const CONFIG_DIR = path.join(WORKSPACE_ROOT, 'config');
 dotenv.config({ path: path.join(WORKSPACE_ROOT, '.env') });
 
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
+const DEEPSEEK_BASE_URL = process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/v1';
 const TAVILY_API_KEY = process.env.TAVILY_API_KEY || '';
 const PORT = parseInt(process.env.PORT || '8000', 10);
 
@@ -76,6 +77,15 @@ import { createMemoryRouter } from './routes/memory.js';
 
 // ── 第六轮：心流种子端点 ──
 import { createSeedsRouter } from './routes/seeds.js';
+
+// ── SICR 路由层 ──
+import { createSicrRouter } from './routes/sicr-router.js';
+
+// ── ESA: 具身自注意力认知架构 ──
+import { ESACore, integrateTRIWithESA } from './esa-core.js';
+
+// ── M6: 自代码自省模块 ──
+import { createSelfScanRouter } from './routes/self-scan.js';
 
 // ── EB-006 上下文守卫 ──
 
@@ -135,7 +145,17 @@ healthMonitor.on('recover', () => {
   console.log('[mainfold-agent] Heartbeat recovered');
 });
 
-// Step 6: 加载 EB-006
+// Step 6: M3.5 — 初始化 ESA 具身自注意力架构
+const esaCore = ESACore.getInstance();
+console.log(`[mainfold-agent] ESA Core: FOCUS (initialized)`);
+
+// Step 6.1: TRI ↔ ESA 集成（每当 TRI 更新时同步到 ESA）
+const esaTriInterval = setInterval(() => {
+  const dims = triState.getDimensions();
+  integrateTRIWithESA(esaCore, dims);
+}, 15_000); // 每 15 秒同步一次
+
+// Step 7: 加载 EB-006
 const eb006 = loadEb006();
 
 // ── Phase E: 初始化记忆层 ──
@@ -213,6 +233,7 @@ app.get('/api/health', (_req: Request, res: Response) => {
   const triDims = triState.getDimensions();
   const hbStatus = healthMonitor.getStatus();
   const triHealth = triState.healthCheck();
+  const esa = ESACore.getInstance().getStatusReport();
 
   res.json({
     services: {
@@ -225,6 +246,13 @@ app.get('/api/health', (_req: Request, res: Response) => {
       H: triDims.H,
       triScore: triState.computeTriScore(),
       state: triHealth.description,
+    },
+    esa: {
+      state: esa.state,
+      confidence: esa.confidence,
+      attentionDecay: esa.attentionDecay,
+      anchors: esa.anchorCount,
+      stateDuration: esa.stateDuration,
     },
     heartbeat: hbStatus,
     identity: {
@@ -294,15 +322,62 @@ app.post('/api/tri', (req: Request, res: Response) => {
 
 // ── M3: Chat 路由 ──
 
-import { getSeedsAsContext } from './seeds.js';
-import { createSeed } from './seeds.js';
+import { listSeeds, createSeed } from './seeds.js';
+import { rankCandidates } from './routes/sicr-router.js';
+import type { SicrCandidate } from './routes/sicr-router.js';
 const chatRouter = createChatRouter({
   systemPrompt: SYSTEM_PROMPT,
   triState,
   healthMonitor,
   apiKey: DEEPSEEK_API_KEY,
   coldMemory, // Phase E: 冷记忆日志
-  getSeedContext: () => getSeedsAsContext((t) => getSharedKg().getEntitiesByType(t)),
+  getSeedContext: async (userMessage: string) => {
+    const kg = getSharedKg();
+    const dormant = listSeeds((t) => kg.getEntitiesByType(t), 'DORMANT');
+    if (dormant.length === 0) return '';
+
+    const candidatePool: SicrCandidate[] = dormant.map(s => ({
+      id: s.id,
+      text: `${s.content}${s.semanticAnchors ? ` [锚点: ${s.semanticAnchors.join(', ')}]` : ''}`,
+    }));
+
+    try {
+      const sicrResult = await rankCandidates(userMessage, candidatePool, {
+        topK: 3,
+        minScore: 0.4,
+      });
+
+      if (sicrResult.results.length === 0) return '';
+
+      const lines: string[] = [];
+      for (const r of sicrResult.results) {
+        const seed = dormant.find(s => s.id === r.id);
+        if (!seed) continue;
+
+        // 高相关性种子（score >= 0.55）自动发芽
+        if (r.score >= 0.55) {
+          kg.addEntity(r.id, 'flow_seed', {
+            content: seed.content,
+            status: 'SPROUTED',
+            createdAt: seed.createdAt,
+            contextId: seed.currentContextId ?? '',
+            anchors: JSON.stringify(seed.semanticAnchors ?? []),
+          });
+          console.log(`[seed-gravity] Auto-sprouted: ${r.id} (score=${r.score.toFixed(2)})`);
+          lines.push(`  [已发芽·${r.score.toFixed(2)}] ${seed.content}`);
+        } else {
+          lines.push(`  [休眠·${r.score.toFixed(2)}] ${seed.content}`);
+        }
+      }
+
+      return lines.length > 0 ? `--- 心流种子（SICR 语义匹配）---\n${lines.join('\n')}` : '';
+    } catch (err) {
+      // SICR 失败时的降级：注入前 3 颗休眠种子
+      console.error(`[seed-gravity] SICR failed, falling back: ${(err as Error).message}`);
+      const fallback = dormant.slice(0, 3).map(s => `  ${s.content}`);
+      return fallback.length > 0 ? `--- 心流种子（降级注入）---\n${fallback.join('\n')}` : '';
+    }
+  },
   seedFlowCb: (content: string) => {
     const kg = getSharedKg();
     createSeed(
@@ -327,11 +402,19 @@ app.use(memoriesRouter);
 const securityRouter = createSecurityRouter();
 app.use(securityRouter);
 
-// ── 第四轮：MemPalace 核心路由 ──
+// ── 第四轮：MemPalace 核心路由（含 SICR 语义搜索）──
 
 const MEMPALACE_KG_PATH = path.join(WORKSPACE_ROOT, 'config', 'mempalace_kg.sqlite3');
-const mempalaceRouter = createMempalaceRouter(MEMPALACE_KG_PATH);
+const mempalaceRouter = createMempalaceRouter(MEMPALACE_KG_PATH, {
+  apiKey: DEEPSEEK_API_KEY,
+  baseUrl: DEEPSEEK_BASE_URL,
+});
 app.use(mempalaceRouter);
+
+// ── SICR 路由层 ──
+
+const sicrRouter = createSicrRouter();
+app.use(sicrRouter);
 
 // ── 第五轮：Tavily 搜索路由 ──
 
@@ -353,6 +436,18 @@ app.use(memoryRouter);
 import { getSharedKg } from './routes/mempalace.js';
 const seedsRouter = createSeedsRouter(getSharedKg());
 app.use(seedsRouter);
+
+// ── M6: 自代码自省路由 ──
+
+const selfScanRouter = createSelfScanRouter();
+app.use(selfScanRouter);
+
+// ── ESA: 注意力状态查询端点 ──
+
+app.get('/api/esa/status', (_req: Request, res: Response) => {
+  const report = ESACore.getInstance().getStatusReport();
+  res.json(report);
+});
 
 app.use((err: Error, _req: Request, res: Response, _next: express.NextFunction) => {
   console.error(`[mainfold-agent] Unhandled error: ${err.message}`);
@@ -380,4 +475,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`[mainfold-agent] TRI: A=${triState.getDimensions().A} S=${triState.getDimensions().S} H=${triState.getDimensions().H}`);
   console.log(`[mainfold-agent] DeepSeek API: ${DEEPSEEK_API_KEY ? 'configured' : 'NOT CONFIGURED'}`);
   console.log(`[mainfold-agent] Phase E: ColdMemory+WarmIndex+MemoryReviewer active`);
+  console.log(`[mainfold-agent] SICR router: /api/sicr/search (Scaffolded In-Context Retrieval)`);
+  console.log(`[mainfold-agent] ESA Core: ${esaCore.state} (confidence=${esaCore.confidence.toFixed(2)})`);
+  console.log(`[mainfold-agent] Self-Scan: /api/self/scan + /api/self/files + /api/self/query`);
 });

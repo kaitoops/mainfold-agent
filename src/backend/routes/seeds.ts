@@ -53,5 +53,51 @@ export function createSeedsRouter(kg: KnowledgeGraph): Router {
     res.json({ context });
   });
 
+  // PATCH /api/seeds/:id — 更新种子状态
+  router.patch('/api/seeds/:id', (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { status } = req.body ?? {};
+
+    if (!status || !['DORMANT', 'SPROUTED', 'ARCHIVED'].includes(status)) {
+      res.status(400).json({ error: 'status must be one of: DORMANT, SPROUTED, ARCHIVED' });
+      return;
+    }
+
+    const entity = kg.getEntity(id);
+    if (!entity) {
+      res.status(404).json({ error: `Seed '${id}' not found` });
+      return;
+    }
+
+    // 使用 INSERT OR REPLACE 更新状态（保留其他属性）
+    const props = typeof entity.properties === 'object' ? entity.properties : {};
+    kg.addEntity(id, 'flow_seed', {
+      ...props,
+      status,
+    });
+
+    console.log(`[seeds] Updated '${id}' → ${status}`);
+    res.json({ id, status: status as string });
+  });
+
+  // DELETE /api/seeds/:id — 删除种子（设为 ARCHIVED）
+  router.delete('/api/seeds/:id', (req: Request, res: Response) => {
+    const { id } = req.params;
+    const entity = kg.getEntity(id);
+    if (!entity) {
+      res.status(404).json({ error: `Seed '${id}' not found` });
+      return;
+    }
+
+    const props = typeof entity.properties === 'object' ? entity.properties : {};
+    kg.addEntity(id, 'flow_seed', {
+      ...props,
+      status: 'ARCHIVED',
+    });
+
+    console.log(`[seeds] Archived '${id}'`);
+    res.json({ id, status: 'ARCHIVED' });
+  });
+
   return router;
 }

@@ -35,9 +35,30 @@
 
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import * as fs from 'fs';
+import * as path from 'path';
 import type { TriStateOrchestrator } from '../tri-state.js';
 import type { HealthMonitor } from '../health-signal.js';
 import type { ColdMemory } from '../memory/cold-db.js';
+
+// ── ESA: 具身自注意力认知架构 ──
+
+import { ESACore, getEsaToolDefinitions } from '../esa-core.js';
+
+// ── Self-Scan: 自代码自省工具 ──
+
+import { getSelfScanToolDefinition } from './self-scan.js';
+
+// ── Phase 1: 输出重构器 prompt ──
+
+const REFINER_PROMPT = (() => {
+  try {
+    return fs.readFileSync(path.join(__dirname, '../refiner-prompt.txt'), 'utf-8');
+  } catch {
+    console.warn('[chat] refiner-prompt.txt not found, output refactoring disabled');
+    return '';
+  }
+})();
 
 // ── 模型配置 ──
 
@@ -128,7 +149,30 @@ async function executeToolCall(toolCall: ToolCall): Promise<string> {
     return JSON.stringify({ error: `Invalid tool arguments JSON: ${argsStr}` });
   }
 
-  // 将工具名映射到本地端点
+  // ── 本地工具（ESA 自注意力状态 + Self-Scan 代码自省）──
+
+  if (name === 'esa_status' || name === 'esa_focus' || name === 'esa_anchor') {
+    const { executeEsaTool } = await import('../esa-core.js');
+    return executeEsaTool({ name, arguments: parsedArgs });
+  }
+
+  if (name === 'self_scan') {
+    const { executeSelfScan } = await import('./self-scan.js');
+    return executeSelfScan(parsedArgs as { action: string; filePath?: string; query?: string });
+  }
+
+  // 兼容：AI 可能自然推断出 read-file / read_file 作为独立工具名
+  // 实际上这是 self_scan 的一个 action，路由到 executeSelfScan
+  if (name === 'read-file' || name === 'read_file') {
+    const { executeSelfScan } = await import('./self-scan.js');
+    return executeSelfScan({
+      action: 'read-file',
+      filePath: (parsedArgs.filePath || parsedArgs.file || '') as string,
+    });
+  }
+
+  // ── HTTP 代理工具（由 tools 路由处理后端逻辑）──
+
   const endpointMap: Record<string, string> = {
     exec: '/api/tools/exec',
     'read-file': '/api/tools/read-file',
@@ -160,6 +204,87 @@ async function executeToolCall(toolCall: ToolCall): Promise<string> {
 /** Function calling 最大循环深度 */
 const MAX_TOOL_CALL_DEPTH = 10;
 
+// ── Phase 1: 输出重构器 ──
+
+/** 内部术语列表：检测到这些词出现在最终回复中时触发重构 */
+const INTERNAL_TERMS = [
+  '流形导航', '流形坐标', '流形识别', '测地线', '测地线规划',
+  '锚点', '五锚点', '叙事归属', '信息服务者锚点', '弱之道锚点',
+  'Lie代数', 'L0', 'L1', 'L2', '元层', '熵力',
+  '旋转采样', '维度投影', '局部曲率',
+  'SOUL.md', 'MemPalace', 'TRI-State', 'BPS', 'ESAC',
+  'DORMANT', '微快照', '心流令牌', '回响令牌',
+] as const;
+
+/** 元解释检测正则：Agent 在回复中暴露自己的思考过程 */
+const META_EXPLAIN_RE = /我(错误|犯|修正|标记|不再|将[^]{1,20}(标记|暂存|激活))/;
+
+/** 前缀解释检测正则：以"你提出"、"我理解"等开头 */
+const PREFIX_EXPLAIN_RE = /^(你(提出|提到|说|的)|我(理解|知道|看到))/;
+
+/**
+ * 输出重构器
+ * 检测 finalContent 是否含内部术语或元解释，若是则调用 V4-Flash 精炼。
+ * 原始版本装入 reasoning_content，对外暴露精炼版本。
+ *
+ * 仅在非 function-calling 的最终回复生效（toolCallDepth === 1）。
+ */
+async function refactorOutput(
+  rawContent: string,
+  originalReasoning: string | null,
+  apiKey: string,
+  deepseekBase: string,
+): Promise<{ content: string; reasoning: string }> {
+  if (!REFINER_PROMPT) {
+    // refiner-prompt.txt 未加载成功 → 直接透传
+    return { content: rawContent, reasoning: originalReasoning || '' };
+  }
+
+  // 快速检测：是否含内部术语 / 元解释 / 前缀解释
+  const hasInternal   = INTERNAL_TERMS.some(t => rawContent.includes(t));
+  const hasMeta       = META_EXPLAIN_RE.test(rawContent);
+  const hasPrefix     = PREFIX_EXPLAIN_RE.test(rawContent.trim());
+
+  if (!hasInternal && !hasMeta && !hasPrefix) {
+    return { content: rawContent, reasoning: originalReasoning || '' };
+  }
+
+  console.log(`[chat] Output refactoring: i=${hasInternal} m=${hasMeta} p=${hasPrefix} (${rawContent.length}c)`);
+
+  try {
+    const response = await fetch(`${deepseekBase}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'deepseek-v4-flash',
+        messages: [
+          { role: 'system', content: REFINER_PROMPT },
+          { role: 'user', content: rawContent },
+        ],
+        stream: false,
+        max_tokens: 2048,
+      }),
+    });
+
+    if (!response.ok) {
+      console.error(`[chat] Refiner API error: ${response.status}`);
+      return { content: rawContent, reasoning: originalReasoning || '' };
+    }
+
+    const data = await response.json() as { choices: Array<{ message: { content: string } }> };
+    const refined = data.choices[0]?.message?.content || rawContent;
+
+    console.log(`[chat] Refactored: ${rawContent.length}c → ${refined.length}c`);
+    return { content: refined, reasoning: rawContent };
+  } catch (err) {
+    console.error(`[chat] Refactor failed: ${(err as Error).message}`);
+    return { content: rawContent, reasoning: originalReasoning || '' };
+  }
+}
+
 // ── Chat 路由器 ──
 
 export function createChatRouter(deps: {
@@ -167,7 +292,8 @@ export function createChatRouter(deps: {
   triState: TriStateOrchestrator;
   healthMonitor: HealthMonitor;
   apiKey: string;
-  getSeedContext?: () => string;
+  /** SICR 种子引力场：用用户消息语义匹配休眠种子，返回筛选后的上下文文本 */
+  getSeedContext?: (userMessage: string) => Promise<string>;
   /** 收到 [心流] 前缀消息时调用的入库回调 */
   seedFlowCb?: (content: string) => void;
   /** Phase E: 冷记忆自动日志（可选） */
@@ -202,11 +328,18 @@ export function createChatRouter(deps: {
         }
       }
 
-      // 3. 构建 system prompt（含动态种子上下文）
-      const seedContext = getSeedContext ? getSeedContext() : '';
-      const fullSystemPrompt = seedContext
-        ? `${systemPrompt}\n\n${seedContext}`
-        : systemPrompt;
+      // 3. 构建 system prompt（含 SICR 种子引力场 + ESA 注意力状态）
+      const esa = ESACore.getInstance();
+      const esaState = esa.beforeMessage(message);
+      const seedContext = getSeedContext ? await getSeedContext(message) : '';
+
+      let fullSystemPrompt = systemPrompt;
+      if (seedContext) {
+        fullSystemPrompt += `\n\n${seedContext}`;
+      }
+      if (esaState.attentionNote) {
+        fullSystemPrompt += `\n\n${esaState.attentionNote}`;
+      }
 
       // 【根因修复】：注入 system_prompt 作为第一条消息
       const systemMsg: ChatMessage = {
@@ -246,10 +379,45 @@ export function createChatRouter(deps: {
       let finalReasoning: string | null = null;
       let totalTokens = 0;
       let toolCallDepth = 0;
+      let reason = '';  // BUGFIX 2026-05-01: 移到 while 循环外，供响应体引用
 
-      // 构建 tools 参数（如果有）
-      const requestTools = parsed.data.tools;
+      // 构建 tools 参数（自动注入 ESA + Self-Scan 工具定义）
+      const esaTools = getEsaToolDefinitions();
+      const selfScanTool = getSelfScanToolDefinition();
+
+      // 兼容：AI 可能自然推断出 read-file / read_file 为独立工具名
+      // 注册为独立工具定义，让 DeepSeek 知道可以调用它
+      const readFileTool = {
+        type: 'function' as const,
+        function: {
+          name: 'read_file',
+          description: '读取 mainfold-agent 自身源代码中的单个文件。当你需要通过 self_scan 知道文件存在后读取其实际内容时使用。参数 file 支持相对路径（如 "esa-core.ts"）或文件名。',
+          parameters: {
+            type: 'object',
+            properties: {
+              file: {
+                type: 'string',
+                description: '目标文件的路径或文件名（如 "esa-core.ts" 或 "routes/chat.ts"）',
+              },
+              filePath: {
+                type: 'string',
+                description: '目标文件的完整相对路径（file 参数的别名，二选一）',
+              },
+            },
+          },
+        },
+      };
+
+      const builtInTools = [...esaTools, selfScanTool, readFileTool];
+      let requestTools = parsed.data.tools;
       const requestToolChoice = parsed.data.tool_choice;
+      if (requestTools && requestTools.length > 0) {
+        // 用户带了自定义 tools → 追加内置工具
+        requestTools = [...requestTools, ...builtInTools];
+      } else {
+        // WebUI 场景：用户未提供 tools → 默认注入内置工具
+        requestTools = builtInTools;
+      }
 
       while (toolCallDepth < MAX_TOOL_CALL_DEPTH) {
         toolCallDepth++;
@@ -259,6 +427,7 @@ export function createChatRouter(deps: {
           model: normalizedModel,
           messages: workingMessages,
           stream: false,
+          max_tokens: 131072,
         };
         // 第一轮才携带 tools（后续轮次是 tool 结果回传，不需要再传 tools）
         if (toolCallDepth === 1 && requestTools && requestTools.length > 0) {
@@ -288,12 +457,14 @@ export function createChatRouter(deps: {
 
         const data = (await apiResponse.json()) as DeepSeekApiResponse;
         const choice = data.choices[0]?.message;
-        const reason = data.choices[0]?.finish_reason || '';
+        reason = data.choices[0]?.finish_reason || '';
 
         totalTokens += data.usage?.total_tokens || 0;
 
         // 检查是否有 tool_calls
-        if (choice?.tool_calls && choice.tool_calls.length > 0 && reason === 'tool_calls') {
+        // BUGFIX 2026-05-01: DeepSeek V4-Flash 的 finish_reason 可能不是 'tool_calls'
+        // 只要 choice 携带了 tool_calls 就应该进入循环消费，不依赖 finish_reason 的字符串值
+        if (choice?.tool_calls && choice.tool_calls.length > 0) {
           // 使用原始 response message 对象（包含 reasoning_content 等所有字段）
           // DeepSeek thinking mode 要求 assistant message 必须携带 reasoning_content 回传
           // 如果用 ChatMessage 类型会丢失该字段，导致 API 拒绝
@@ -322,6 +493,15 @@ export function createChatRouter(deps: {
         // 普通内容响应
         finalContent = choice?.content || '';
         finalReasoning = choice?.reasoning_content || null;
+
+        // Phase 1: 输出重构（仅对非 function-calling 的最终回复生效）
+        // BUGFIX 2026-05-01: 当 toolCallDepth > 1 时跳过重构，避免重构器吞掉长回复
+        if (finalContent && finalContent.length > 10 && toolCallDepth > 0 && toolCallDepth <= 1) {
+          const refactored = await refactorOutput(finalContent, finalReasoning, apiKey, DEEPSEEK_BASE_URL);
+          finalContent = refactored.content;
+          finalReasoning = refactored.reasoning || finalReasoning;
+        }
+
         break; // 退出循环
       }
 
@@ -335,6 +515,9 @@ export function createChatRouter(deps: {
 
       // 7. Ping 健康监控（M5 耦合）
       healthMonitor.ping();
+
+      // 7. ESA: 更新具身自注意力状态（对话后回调）
+      esa.afterMessage(finalContent || '', finalContent !== null && finalContent.length > 0);
 
       // 7.5 Phase E: 记录对话到冷记忆（可选）
       if (deps.coldMemory && cleanedMessage && finalContent) {
@@ -358,6 +541,8 @@ export function createChatRouter(deps: {
       res.json({
         content: finalContent,
         token_used: totalTokens,
+        finish_reason: reason,                     // ← BUGFIX 2026-05-01: 暴露原始 finish_reason 供诊断
+        working_messages_len: workingMessages.length, // ← BUGFIX 2026-05-01: 暴露上下文长度供诊断
         timestamp: new Date().toISOString(),
         reasoning_content: finalReasoning,
         tool_calls_used: toolCallDepth > 1,

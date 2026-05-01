@@ -21,6 +21,8 @@ import { MemorySearcher } from '../mempalace/searcher.js';
 import { normalize, chunkExchanges, detectConvoRoom } from '../mempalace/normalize.js';
 import { detectStuck, createPathSession, generateCandidates } from '../mempalace/pathfinder.js';
 import type { TriDimensions } from '../tri-state.js';
+import { rankCandidates } from './sicr-router.js';
+import type { SicrCandidate } from './sicr-router.js';
 
 // ── 单例：KnowledgeGraph（进程级，所有路由共享）──
 
@@ -94,9 +96,15 @@ const pathfindSchema = z.object({
   H: z.number().min(0).max(1),
 });
 
+/** SICR 依赖注入类型 */
+interface SicrDeps {
+  apiKey?: string;
+  baseUrl?: string;
+}
+
 // ── 创建路由 ──
 
-export function createMempalaceRouter(kgDbPath: string) {
+export function createMempalaceRouter(kgDbPath: string, sicrDeps?: SicrDeps) {
   // 设置数据库路径（供内部 getKg 使用）
   _kgDbPath = kgDbPath;
   const router = Router();
@@ -347,6 +355,112 @@ export function createMempalaceRouter(kgDbPath: string) {
       session,
       candidates,
     });
+  });
+
+  // ══════════════════════════════════════════════
+  // SICR 语义搜索（首个 SICR 消费模块）
+  // ══════════════════════════════════════════════
+
+  /**
+   * POST /api/mempalace/search/semantic
+   *
+   * 使用 SICR 对 MemPalace 知识图谱进行语义搜索。
+   * 1. 先获取所有实体作为候选池
+   * 2. 用 SICR（V4-Flash 1M 上下文）进行语义排序
+   * 3. 返回相关性最高的实体
+   */
+  router.post('/api/mempalace/search/semantic', async (req: Request, res: Response) => {
+    try {
+      const { query, topK, type, minScore, includeReasoning } = req.body as {
+        query?: string;
+        topK?: number;
+        type?: string;
+        minScore?: number;
+        includeReasoning?: boolean;
+      };
+
+      if (!query || typeof query !== 'string' || !query.trim()) {
+        res.status(400).json({ error: 'query (string) is required' });
+        return;
+      }
+
+      if (!sicrDeps?.apiKey) {
+        // 无 API key 时降级到普通文本搜索
+        const s = getSearcher();
+        const results = s.search(query);
+        res.json({
+          query,
+          sicr: false,
+          reason: 'SICR not available (no API key)',
+          results: results.map((r) => ({
+            id: r.entity.id,
+            name: r.entity.name,
+            type: r.entity.type,
+            score: r.score,
+            matchField: r.matchField,
+          })),
+          totalCandidates: results.length,
+        });
+        return;
+      }
+
+      // 获取候选实体
+      let entities = type
+        ? getKg().getEntitiesByType(type)
+        : getKg().searchEntities(''); // LIKE '%%' 匹配所有实体
+
+      // 限制候选数量
+      const MAX_CANDIDATES = 200;
+      if (entities.length > MAX_CANDIDATES) {
+        entities = entities.slice(0, MAX_CANDIDATES);
+      }
+
+      if (entities.length === 0) {
+        res.json({ query, results: [], totalCandidates: 0, sicr: true });
+        return;
+      }
+
+      // 格式化候选
+      const candidates: SicrCandidate[] = entities.map((e) => ({
+        id: e.id,
+        text: `${e.name} (${e.type})${e.properties && Object.keys(e.properties).length > 0 ? ` — ${JSON.stringify(e.properties)}` : ''}`,
+        metadata: { name: e.name, type: e.type, createdAt: e.createdAt },
+      }));
+
+      // 调用 SICR 排序
+      const sicrResult = await rankCandidates(query, candidates, {
+        topK: Math.min(topK ?? 10, 50),
+        minScore: minScore ?? 0.3,
+        includeReasoning,
+      });
+
+      // 将 SICR 结果映射回实体信息
+      const enrichedResults = sicrResult.results.map((r) => {
+        const entity = getKg().getEntity(r.id);
+        return {
+          id: r.id,
+          name: entity?.name ?? r.id,
+          type: entity?.type ?? 'unknown',
+          score: r.score,
+          properties: entity?.properties ?? {},
+          matchField: 'semantic',
+        };
+      });
+
+      res.json({
+        query,
+        sicr: true,
+        results: enrichedResults,
+        totalCandidates: entities.length,
+        tokensUsed: sicrResult.tokensUsed,
+        confidence: sicrResult.confidence,
+        latencyMs: sicrResult.latencyMs,
+      });
+    } catch (err) {
+      const error = err as Error;
+      console.error(`[mempalace] Semantic search error: ${error.message}`);
+      res.status(500).json({ error: 'Semantic search failed', detail: error.message });
+    }
   });
 
   return router;
