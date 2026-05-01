@@ -1,0 +1,308 @@
+{
+  "version": 1,
+  "maxEntries": 500,
+  "entries": [
+    {
+      "id": "warm_eb007_fix001",
+      "type": "technical_pattern",
+      "title": "[EB-007][L2] 白名单修复：agent 工作空间需加入安全白名单",
+      "summary": "exec 已被调用 6 次。",
+      "tags": [
+        "cross-disk",
+        "eb-007",
+        "fix",
+        "permission-system"
+      ],
+      "source": "workbuddy-fix-review",
+      "importance": 0.9,
+      "created_at": "2026-05-02T02:45:00.000Z",
+      "updated_at": "2026-05-01T19:02:22.257Z"
+    },
+    {
+      "id": "warm_1746152400000_cap_01",
+      "type": "technical_pattern",
+      "title": "【L2】三层记忆架构：ColdMemory + WarmIndex + MemoryReviewer",
+      "summary": "我有完整的 Phase E 记忆系统：ColdMemory(SQLite持久化，对话+工具操作，365天留存) + WarmIndex(JSON索引，max500条，按重要性裁剪，session间加载) + MemoryReviewer(5min自动整理，20操作阈值触发)。API: GET /api/memory/{stats,conversations,operations,warm,warm/search,warm/context} + POST /api/memory/warm/add + POST /api/memory/review。",
+      "tags": [
+        "l2-core",
+        "memory-architecture",
+        "phase-e",
+        "self-capability"
+      ],
+      "source": "builtin-capability",
+      "importance": 0.95,
+      "created_at": "2026-05-02T02:20:00.000Z",
+      "updated_at": "2026-05-02T02:20:00.000Z"
+    },
+    {
+      "id": "warm_1746152400000_cap_02",
+      "type": "technical_pattern",
+      "title": "【L2】ESA 自我反思与质量过滤",
+      "summary": "我有 ESA(Embodied Self-Attention)能力：响应前自我反思(esa-core.ts + esa/self-scan.ts)评估输出质量，响应后自动记录到ColdMemory。能自我检测退化并调整行为。注入路径：chat.ts的outputRefactoring + index.ts的ESA初始化。",
+      "tags": [
+        "esa",
+        "l2-core",
+        "output-quality",
+        "self-capability",
+        "self-reflection"
+      ],
+      "source": "builtin-capability",
+      "importance": 0.93,
+      "created_at": "2026-05-02T02:20:00.000Z",
+      "updated_at": "2026-05-02T02:20:00.000Z"
+    },
+    {
+      "id": "warm_1746152400000_cap_03",
+      "type": "technical_pattern",
+      "title": "【L2】输出约束协议：7条规则 + refactorOutput后处理",
+      "summary": "我受7条约束(soul-loader.ts)：(1)术语封印—不暴露内部名(2)禁元解释(3)结论优先(4)禁ASCII架构图(5)不确定性标注(6)无礼貌前缀(7)令牌行为直接做。chat.ts的refactorOutput()做后处理过滤，检测内部术语时自动精炼。严格执行。",
+      "tags": [
+        "l2-core",
+        "output-constraint",
+        "refactor-output",
+        "self-capability",
+        "soul-loader"
+      ],
+      "source": "builtin-capability",
+      "importance": 0.92,
+      "created_at": "2026-05-02T02:20:00.000Z",
+      "updated_at": "2026-05-02T02:20:00.000Z"
+    },
+    {
+      "id": "warm_1746152400000_cap_04",
+      "type": "technical_pattern",
+      "title": "【L2】SICR 语义搜索（1M上下文替代向量DB）",
+      "summary": "我有SICR(Scaffolded In-Context Retrieval)：利用DeepSeek V4-Flash的1M上下文窗口，用Attention做语义相似度检索(softmax(QK^T)=加权相似度)。无需向量DB/embedding模型。适用条件：候选池<200条，单次cost 1K-10K token。集成在self-scan和种子引力场。",
+      "tags": [
+        "context-window",
+        "l2-core",
+        "no-vector-db",
+        "self-capability",
+        "semantic-search",
+        "sicr"
+      ],
+      "source": "builtin-capability",
+      "importance": 0.9,
+      "created_at": "2026-05-02T02:20:00.000Z",
+      "updated_at": "2026-05-02T02:20:00.000Z"
+    },
+    {
+      "id": "warm_1746152400000_cap_05",
+      "type": "technical_pattern",
+      "title": "【L2】全工具链：6端点 + Function Calling + 操作日志",
+      "summary": "exec 已被调用 6 次。",
+      "tags": [
+        "cold-memory-logging",
+        "function-calling",
+        "l2-core",
+        "safe-exec",
+        "self-capability",
+        "tools"
+      ],
+      "source": "builtin-capability",
+      "importance": 0.9,
+      "created_at": "2026-05-02T02:20:00.000Z",
+      "updated_at": "2026-05-01T19:02:22.256Z"
+    },
+    {
+      "id": "warm_1746152400000_cap_06",
+      "type": "technical_pattern",
+      "title": "【L2】TRI 状态 + Health Monitor 自我监控",
+      "summary": "我有TRI状态机(tri-state.ts)：A(行动)×S(稳定)×H(健康)三维协调，HealthRatio恒温器。H<0.6→DEGRADED，H<0.3→CRITICAL。关联HealthMonitor心跳信号，每次对话后更新。API: GET /health返回状态。功能：认知过载检测、异常恢复、退化预警。",
+      "tags": [
+        "health-monitor",
+        "l2-core",
+        "self-capability",
+        "self-monitoring",
+        "tri-state"
+      ],
+      "source": "builtin-capability",
+      "importance": 0.82,
+      "created_at": "2026-05-02T02:20:00.000Z",
+      "updated_at": "2026-05-02T02:20:00.000Z"
+    },
+    {
+      "id": "warm_1746152400000_cap_07",
+      "type": "technical_pattern",
+      "title": "【L3】MemPalace 知识图谱",
+      "summary": "我有结构化知识存储能力(mempalace/)：概念实体存储、关系链接、语义查询。JSON文件持久化，可跨session保持知识。内部MCP(mempalace-mcp)用于内部IPC，不注册到WorkBuddy。",
+      "tags": [
+        "knowledge-graph",
+        "l3-aux",
+        "mempalace",
+        "self-capability"
+      ],
+      "source": "builtin-capability",
+      "importance": 0.78,
+      "created_at": "2026-05-02T02:20:00.000Z",
+      "updated_at": "2026-05-02T02:20:00.000Z"
+    },
+    {
+      "id": "warm_1746152400000_cap_08",
+      "type": "technical_pattern",
+      "title": "【L3】跨盘权限系统：路径白名单 + 审批队列",
+      "summary": "有安全访问控制(security.ts + inject.ts)：访问工作区外绝对路径走白名单验证(config/allowed-paths.json)。白名单内→允许；不命中→pushPermissionRequest推送到WebUI审批队列，用户加白名单后重试。防止路径遍历攻击。",
+      "tags": [
+        "cross-disk",
+        "l3-aux",
+        "permission-system",
+        "security",
+        "self-capability"
+      ],
+      "source": "builtin-capability",
+      "importance": 0.76,
+      "created_at": "2026-05-02T02:20:00.000Z",
+      "updated_at": "2026-05-02T02:20:00.000Z"
+    },
+    {
+      "id": "warm_1746152400000_cap_09",
+      "type": "technical_pattern",
+      "title": "【L3】Inject Queue：外部消息接收",
+      "summary": "可通过POST /api/inject/pending接收外部消息(inject.ts)。消息入内存队列，按优先级排序，WebUI每3秒轮询展示。用户确认后DELETE /api/inject/pending/:id消费。支持3来源(workbuddy/system/manual)+3优先级(0低/1普通/2高)。",
+      "tags": [
+        "external-communication",
+        "inject-queue",
+        "l3-aux",
+        "self-capability"
+      ],
+      "source": "builtin-capability",
+      "importance": 0.74,
+      "created_at": "2026-05-02T02:20:00.000Z",
+      "updated_at": "2026-05-02T02:20:00.000Z"
+    },
+    {
+      "id": "warm_1746152400000_cap_10",
+      "type": "technical_pattern",
+      "title": "【L3】Self-Scan 自主能力发现",
+      "summary": "有自动扫描能力(self-scan.ts + esa/self-scan.ts)：启动时扫描自身路径和路由结构，发现并注册可用能力。扫描范围：routes/、memory/、tools目录 + WarmIndex自认知条目。通过POST /api/self-scan触发手动扫描。",
+      "tags": [
+        "capability-discovery",
+        "l3-aux",
+        "self-capability",
+        "self-scan"
+      ],
+      "source": "builtin-capability",
+      "importance": 0.7,
+      "created_at": "2026-05-02T02:20:00.000Z",
+      "updated_at": "2026-05-02T02:20:00.000Z"
+    },
+    {
+      "id": "warm_1746152400000_cap_11",
+      "type": "technical_pattern",
+      "title": "【L3】种子引力场：自动发芽 + 语义匹配",
+      "summary": "有种子系统(config/seeds/)：种子条目在self-scan中自动发芽，满足触发条件时展开为完整模块。与SICR集成做语义匹配。",
+      "tags": [
+        "germination",
+        "l3-aux",
+        "seeds",
+        "self-capability",
+        "sicr"
+      ],
+      "source": "builtin-capability",
+      "importance": 0.68,
+      "created_at": "2026-05-02T02:20:00.000Z",
+      "updated_at": "2026-05-02T02:20:00.000Z"
+    },
+    {
+      "id": "warm_1746152400000_fix002",
+      "type": "error_lesson",
+      "title": "【L2】空消息过滤修复：判断后立即return不fallthrough",
+      "summary": "chat.ts cleanedMessage过滤器判断无有效消息后尽早return，后续代码不继续执行。修复前空消息被logConversation误写入ColdMemory(空summary)。memory.ts第655行已添加空值保护作为双重保险。",
+      "tags": [
+        "bug-fix",
+        "chat-ts",
+        "cold-memory",
+        "empty-message",
+        "l2-core"
+      ],
+      "source": "workbuddy-fix-review",
+      "importance": 0.9,
+      "created_at": "2026-05-02T02:10:00.000Z",
+      "updated_at": "2026-05-02T02:10:00.000Z"
+    },
+    {
+      "id": "warm_1746152100000_fix001",
+      "type": "technical_pattern",
+      "title": "【L3】修复经验：Git commit不是agent记忆",
+      "summary": "重要修复经验必须写入WarmIndex/ColdMemory才能被agent自己在后续session检索到。Git commit无效因为agent启动时不读Git history。",
+      "tags": [
+        "agent-self-knowledge",
+        "fix-pattern",
+        "l3-aux",
+        "memory-system",
+        "warm-index"
+      ],
+      "source": "workbuddy-fix-review",
+      "importance": 0.75,
+      "created_at": "2026-05-02T02:10:00.000Z",
+      "updated_at": "2026-05-02T02:10:00.000Z"
+    },
+    {
+      "id": "warm_1746152100000_fix003",
+      "type": "error_lesson",
+      "title": "【L3】api/tools空消息漏洞：memory.ts全局兜底",
+      "summary": "tools.ts的read_file/write_to_file/list_dir/search_content/search_file也调用了logToolOperation，但没有空内容过滤。memory.ts添加了全局空值保护。",
+      "tags": [
+        "bug-fix",
+        "cold-memory",
+        "empty-message",
+        "l3-aux",
+        "tools-ts"
+      ],
+      "source": "workbuddy-fix-review",
+      "importance": 0.65,
+      "created_at": "2026-05-02T02:10:00.000Z",
+      "updated_at": "2026-05-02T02:10:00.000Z"
+    },
+    {
+      "id": "warm_1777659499788_5xlmv5",
+      "type": "technical_pattern",
+      "title": "频用工具: read-file",
+      "summary": "read-file 已被调用 10 次。",
+      "tags": [
+        "auto_detected",
+        "read-file",
+        "tool_pattern"
+      ],
+      "source": "memory-reviewer",
+      "importance": 0.9,
+      "created_at": "2026-05-01T18:18:19.788Z",
+      "updated_at": "2026-05-01T19:15:52.113Z"
+    },
+    {
+      "id": "warm_1777664508764_tggcsi",
+      "type": "technical_pattern",
+      "title": "[EB-007][L1] DeepSeek function calling 工具名必须用下划线",
+      "summary": "DeepSeek 在 function calling 中自然地使用下划线命名（write_file/read_file）。工具定义名必须用下划线，不要用连字符，否则模型输出时找不到工具报 Unknown tool。在 endpointMap 中添加下划线别名作为双重保障。影响所有工具定义。",
+      "tags": [
+        "eb-007",
+        "fix",
+        "function-calling",
+        "tool-naming",
+        "deepseek"
+      ],
+      "source": "workbuddy-fix-review",
+      "importance": 0.88,
+      "created_at": "2026-05-01T19:41:48.764Z",
+      "updated_at": "2026-05-01T19:41:48.764Z"
+    },
+    {
+      "id": "warm_1777664510121_t0qd8k",
+      "type": "error_lesson",
+      "title": "[EB-007][L2] write_file 三阶段排查：参数名→endpointMap→定义名",
+      "summary": "write-file 工具调用持续失败分三阶段修复：(1) 参数 file→filePath 归一化 (2) endpointMap 添加 write_file 别名 (3) 定义名改为 write_file。与 read_file(L184 预检查双名)对比，write_file 无同级防护是根本原因。",
+      "tags": [
+        "eb-007",
+        "fix",
+        "function-calling",
+        "write-file",
+        "chat-ts"
+      ],
+      "source": "workbuddy-fix-review",
+      "importance": 0.72,
+      "created_at": "2026-05-01T19:41:50.121Z",
+      "updated_at": "2026-05-01T19:41:50.121Z"
+    }
+  ],
+  "lastPruned": null
+}

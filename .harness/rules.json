@@ -1,0 +1,214 @@
+{
+  "harness_rules_version": "1.0",
+  "last_updated": null,
+  "rules": {
+    "file_communication": {
+      "principle": "Agent间零直接对话，仅通过文件系统单向通信",
+      "message_storage": ".harness/comms/",
+      "file_naming": "YYYYMMDD_HHMMSS_<type>.json",
+      "types": {
+        "proposal_from_planner": "contract_proposal_<contract_id>.json",
+        "directive_from_planner": "planner_directive_<contract_id>.md",
+        "done_from_generator": "generator_done_<contract_id>.json",
+        "signal_from_human": "interrupt_signal_<contract_id>.json"
+      },
+      "message_lifecycle": {
+        "read": "接收Agent读取后标记为READ",
+        "archive": "READ状态文件保留至会话结束，之后归档至.harness/comms/archive/",
+        "delete": "删除仅限人类或Planning Agent的归档指令，Generator和Evaluator不可主动删除",
+        "orphan_cleanup": "超过48小时未被读取的消息自动归档"
+      },
+      "single_direction": {
+        "rule": "消息文件只能由发送者写入，接收者只能读取，禁止接收者修改发送者的消息",
+        "exception": "仅Planning Agent可在DRAFT阶段修改contract_proposal中的negotiation_fields"
+      },
+      "conflict_resolution": "同一合同ID出现两份冲突消息时，以时间戳较新者为准，旧消息归档标记为SUPERSEDED"
+    },
+
+    "checkpoint_behavior": {
+      "principle": "中断恢复的第一公民保障，检查点是核心流程组成而非事后补救",
+      "create_triggers": [
+        "每个合同里程碑完成后强制创建",
+        "每个交付物（deliverable）提交后自动创建",
+        "人类显式请求中断时创建",
+        "TOKEN使用超过硬限制80%时自动创建（作为安全兜底）",
+        "每完成3个连续的子任务后自动创建"
+      ],
+      "checkpoint_file_format": {
+        "path": ".harness/checkpoints/history/checkpoint_<contract_id>_<seq>.json",
+        "required_fields": [
+          "checkpoint_id",
+          "contract_id",
+          "created_at",
+          "agent_role",
+          "state_snapshot",
+          "completed_items",
+          "pending_items",
+          "next_action",
+          "token_used_so_far"
+        ],
+        "state_snapshot_fields": [
+          "current_phase",
+          "deliverables_committed",
+          "deliverables_done",
+          "pending_decisions",
+          "open_issues"
+        ]
+      },
+      "recovery_procedure": [
+        "1. 扫描.harness/checkpoints/history/获取最新检查点（按时间戳排序）",
+        "2. 读取state_snapshot恢复执行上下文",
+        "3. 验证contract_id对应的合同是否仍为LOCKED状态",
+        "4. 从pending_items中的第一个未完成项继续执行",
+        "5. 检查token_used_so_far重新计算剩余预算",
+        "6. 在回复开头声明「从检查点<id>恢复执行」"
+      ],
+      "checkpoint_retention": "保留最近20个检查点，超出后自动归档最旧的至checkpoints/archive/",
+      "anti_corruption": "恢复时如果检查点与当前合同状态不一致，以合同为准，标记检查点为STALE"
+    },
+
+    "contract_lifecycle": {
+      "principle": "合同是HARNESS系统的核心锚点，锁定后不可修改",
+      "states": {
+        "DRAFT": {
+          "description": "合同起草阶段",
+          "actions_allowed": ["编辑任意字段", "添加/删除交付物", "修改验收标准", "调整TOKEN预算"],
+          "owner": "Planning Agent（与人类协商）",
+          "transitions_to": ["UNDER_REVIEW"]
+        },
+        "UNDER_REVIEW": {
+          "description": "合同审核阶段，Evaluator介入审核",
+          "actions_allowed": ["仅negotiation_fields可编辑", "添加约束和备注"],
+          "owner": "Evaluator（审核）+ Planning Agent（协商）",
+          "negotiation_fields": [
+            "deliverables[].acceptance_criteria_ref",
+            "token_budget.generator",
+            "context_requirements.knowledge_sources"
+          ],
+          "transitions_to": ["LOCKED", "DRAFT"]
+        },
+        "LOCKED": {
+          "description": "合同锁定阶段，执行开始",
+          "actions_allowed": ["不可修改任何字段"],
+          "owner": "Generator（执行）+ Evaluator（验收）",
+          "immutable": true,
+          "transitions_to": ["COMPLETED", "FAILED", "COMPLETED_WITH_ISSUES"]
+        },
+        "COMPLETED": {
+          "description": "合同成功完成",
+          "conditions": "所有deliverables提交且所有acceptance_criteria通过验收",
+          "actions_allowed": ["归档"],
+          "owner": "Evaluator（确认完结）",
+          "transitions_to": ["ARCHIVED"]
+        },
+        "FAILED": {
+          "description": "合同执行失败",
+          "conditions": "Generator未能在token_budget内完成，或关键验收标准未通过",
+          "actions_allowed": ["创建失败报告", "归档"],
+          "owner": "Planning Agent（分析原因）",
+          "transitions_to": ["ARCHIVED"]
+        },
+        "COMPLETED_WITH_ISSUES": {
+          "description": "合同完成但部分非关键验收标准未通过",
+          "conditions": "所有门控验收标准通过，但部分期望验收标准未达到",
+          "actions_allowed": ["归档", "创建改进工单"],
+          "owner": "Planning Agent（分类处理）",
+          "transitions_to": ["ARCHIVED"]
+        },
+        "ARCHIVED": {
+          "description": "合同终态，只读存档",
+          "actions_allowed": ["只读"],
+          "retention": "永久保留（作为系统行为记录）",
+          "transitions_to": []
+        }
+      },
+      "archive_condition": "合同进入COMPLETED/FAILED/COMPLETED_WITH_ISSUES后自动归档至.harness/contracts/archive/",
+      "immutability_enforcement": "LOCKED状态的合同，HARNESS框架会拒绝任何写操作，仅在.harness/checkpoints/中记录修改尝试"
+    },
+
+    "interruption_recovery": {
+      "principle": "随时中断是一等公民，恢复不是回退而是继续",
+      "scan_on_restart": {
+        "enabled": true,
+        "scan_targets": [
+          ".harness/contracts/active/",
+          ".harness/contracts/archive/",
+          ".harness/checkpoints/history/",
+          ".harness/comms/"
+        ],
+        "max_depth": 2
+      },
+      "recovery_decision_tree": [
+        {
+          "condition": "发现LOCKED合同 + 检查点存在",
+          "action": "从最新检查点恢复执行",
+          "priority": 1
+        },
+        {
+          "condition": "发现LOCKED合同 + 检查点不存在",
+          "action": "从合同定义的任务描述重新开始，创建初始检查点",
+          "priority": 2
+        },
+        {
+          "condition": "发现DRAFT合同 + 无LOCKED合同",
+          "action": "从DRAFT阶段继续协商或启动执行",
+          "priority": 3
+        },
+        {
+          "condition": "无任何合同文件",
+          "action": "正常启动，等待新任务",
+          "priority": 4
+        }
+      ],
+      "recovery_validation": {
+        "required_checks": [
+          "工作空间根路径可达",
+          "关键文件存在",
+          "合同状态与检查点一致",
+          "TOKEN预算余额正确",
+          "已完成的交付物实际存在"
+        ],
+        "before_continue": "在继续执行前，输出一份恢复状态摘要（包含以上5项检查结果）"
+      },
+      "interrupt_modes": {
+        "IMMEDIATE": "立即停止当前任务，保存当前状态为检查点，不执行额外清理",
+        "GRACEFUL": "完成当前原子步骤后停止，保存检查点，执行必要清理"
+      },
+      "recovery_confirmation": "Agent将在回答开头声明状态，例如：「⏮ 从检查点 checkpoint_I-BROWSER-001_003 恢复，已完成 3/7 验收标准，剩余 1200 TOKEN」"
+    },
+
+    "token_management": {
+      "principle": "TOKEN是有限资源，每个阶段有明确预算，超限即熔断",
+      "budget_sources": "参考active合同中的token_budget字段（contract_template.json中的G:2000/E:800/Total:2800/Hard:3000）",
+      "tracking": {
+        "method": "每个阶段结束时记录已用TOKEN数至检查点文件的token_used_so_far字段",
+        "accuracy": "记录值取整到百位数，允许10%误差"
+      },
+      "warning_levels": {
+        "green": {
+          "range": "已用 < 预算的 60%",
+          "action": "正常执行"
+        },
+        "yellow": {
+          "range": "已用 >= 预算的 60% 且 < 预算的 80%",
+          "action": "输出TOKEN使用警告，优化剩余步骤"
+        },
+        "orange": {
+          "range": "已用 >= 预算的 80% 且 < 硬限制的 90%",
+          "action": "输出严重警告，暂停非必要操作，准备熔断检查点"
+        },
+        "red": {
+          "range": "已用 >= 硬限制的 90%",
+          "action": "立即保存检查点，停止当前任务，通知人类"
+        }
+      },
+      "hard_limit_behavior": "到达硬限制（hard_limit）时自动创建interrupt_signal并转为FAILED状态",
+      "per_phase_budget": {
+        "planning": "占合同total的 15%",
+        "generation": "占合同total的 60%",
+        "evaluation": "占合同total的 25%"
+      },
+      "anti_leak": "Agent不能通过外部API调用绕过TOKEN预算限制，所有输出均计入当前阶段消耗"
+    }
+  }
+}

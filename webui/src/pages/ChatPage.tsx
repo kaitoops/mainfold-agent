@@ -60,6 +60,33 @@ interface InjectMessage {
   priority: number;
 }
 
+// ── Agent 实时状态类型 ──
+
+interface AgentStatusEntry {
+  phase: string;
+  detail: string;
+  timestamp: string;
+}
+
+interface AgentStatus {
+  phase: 'idle' | 'api' | 'tool' | 'tool-result' | 'refactor' | 'finalizing';
+  detail: string;
+  toolName?: string;
+  filePath?: string;
+  timestamp: string;
+  history: AgentStatusEntry[];
+  elapsed: number;
+}
+
+const AGENT_PHASE_CONFIG: Record<string, { label: string; color: string; icon: string }> = {
+  idle:       { label: '等待中',   color: 'bg-gray-500',  icon: '○' },
+  api:        { label: '调用 AI',  color: 'bg-blue-400',  icon: '◉' },
+  tool:       { label: '执行操作', color: 'bg-yellow-400', icon: '▶' },
+  'tool-result': { label: '操作完成', color: 'bg-green-400', icon: '✓' },
+  refactor:   { label: '优化输出', color: 'bg-purple-400', icon: '◎' },
+  finalizing: { label: '生成回复', color: 'bg-indigo-400', icon: '◆' },
+};
+
 // ── 辅助函数 ──
 
 function generateId(): string {
@@ -147,6 +174,8 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [injectMessages, setInjectMessages] = useState<InjectMessage[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
+  const [agentPollActive, setAgentPollActive] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -190,6 +219,36 @@ export default function ChatPage() {
     const id = setInterval(poll, INJECT_POLL_INTERVAL);
     return () => clearInterval(id);
   }, []);
+
+  // ── Agent 状态轮询（仅 loading 时启动，1 秒间隔）──
+
+  useEffect(() => {
+    if (!isLoading) {
+      setAgentPollActive(false);
+      return;
+    }
+
+    setAgentPollActive(true);
+
+    const poll = async () => {
+      try {
+        const res = await fetch('/api/agent/status');
+        if (res.ok) {
+          const data: AgentStatus = await res.json();
+          setAgentStatus(data);
+        }
+      } catch {
+        // 静默
+      }
+    };
+
+    poll(); // 立即执行第一次
+    const id = setInterval(poll, 1000);
+    return () => {
+      clearInterval(id);
+      setAgentStatus(null);
+    };
+  }, [isLoading]);
 
   // ── 当前会话 ──
 
@@ -564,8 +623,63 @@ export default function ChatPage() {
 
           {isLoading && (
             <div className="flex justify-start">
-              <div className="bg-gray-800 rounded-lg px-4 py-3 text-gray-400 text-sm">
-                <span className="animate-pulse">思考中...</span>
+              <div className="bg-gray-800 rounded-lg px-4 py-3 text-gray-400 text-sm max-w-[85%] min-w-[240px]">
+                {/* 当前阶段指示器 */}
+                <div className="flex items-center gap-2 mb-1">
+                  <span
+                    className={`w-2.5 h-2.5 rounded-full animate-pulse ${
+                      agentStatus
+                        ? (AGENT_PHASE_CONFIG[agentStatus.phase]?.color ?? 'bg-blue-400')
+                        : 'bg-blue-400'
+                    }`}
+                  />
+                  <span className="font-medium text-gray-300">
+                    {agentStatus
+                      ? (AGENT_PHASE_CONFIG[agentStatus.phase]?.label ?? '处理中')
+                      : '处理中'}
+                  </span>
+                  {agentStatus && agentStatus.elapsed > 2 && (
+                    <span className="text-xs text-gray-600 ml-auto">
+                      {agentStatus.elapsed < 60
+                        ? `${agentStatus.elapsed}s`
+                        : `${Math.floor(agentStatus.elapsed / 60)}m${agentStatus.elapsed % 60}s`}
+                    </span>
+                  )}
+                </div>
+
+                {/* 当前详情 */}
+                <div className="text-xs text-gray-500">
+                  {agentStatus?.detail ?? '初始化...'}
+                </div>
+
+                {/* 文件路径（如有） */}
+                {agentStatus?.filePath && (
+                  <div className="text-[11px] text-gray-600 mt-0.5 truncate font-mono"
+                    title={agentStatus.filePath}>
+                    {agentStatus.filePath.length > 70
+                      ? '...' + agentStatus.filePath.slice(-67)
+                      : agentStatus.filePath}
+                  </div>
+                )}
+
+                {/* 工具名（如有且非 read/write 已显示路径） */}
+                {agentStatus?.toolName && agentStatus.phase === 'tool' && !agentStatus.filePath && (
+                  <div className="text-[11px] text-gray-600 mt-0.5">
+                    {agentStatus.toolName}
+                  </div>
+                )}
+
+                {/* 最近历史轨迹（最后 3 条，不含当前） */}
+                {agentStatus && agentStatus.history.length > 1 && (
+                  <div className="mt-2 pt-2 border-t border-gray-700/50 space-y-0.5">
+                    {agentStatus.history.slice(-4, -1).map((h, i) => (
+                      <div key={i} className="text-[11px] text-gray-600 flex items-center gap-1">
+                        <span className="text-gray-700">└</span>
+                        <span>{h.detail}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}

@@ -45,6 +45,10 @@ import type { ColdMemory } from '../memory/cold-db.js';
 
 import { ESACore, getEsaToolDefinitions } from '../esa-core.js';
 
+// ── BROWSER: 浏览器自动化工具 ──
+
+import { getBrowserToolDefinitions, BROWSER_TOOL_LABELS } from '../harness/browser-registry.js';
+
 // ── Self-Scan: 自代码自省工具 ──
 
 import { getSelfScanToolDefinition } from './self-scan.js';
@@ -137,6 +141,15 @@ interface DeepSeekApiResponse {
   usage?: { total_tokens: number };
 }
 
+// ── Agent 状态追踪 ──
+
+import {
+  setAgentStatus,
+  beginDialogue,
+  resetAgentStatus,
+  TOOL_LABELS,
+} from './agent-status.js';
+
 // ── 工具执行辅助 ──
 
 /** 通过 HTTP 调用本地工具端点 */
@@ -149,16 +162,33 @@ async function executeToolCall(toolCall: ToolCall): Promise<string> {
     return JSON.stringify({ error: `Invalid tool arguments JSON: ${argsStr}` });
   }
 
-  // ── 本地工具（ESA 自注意力状态 + Self-Scan 代码自省）──
+  // ── 本地工具（ESA 自注意力状态 + BROWSER 自动化 + Self-Scan 代码自省）──
+
+  // BROWSER 自动化工具（在 ESA 之前，因为浏览器工具有异步执行路径）
+  if (name.startsWith('browser_')) {
+    const label = BROWSER_TOOL_LABELS[name] || name;
+    setAgentStatus({ phase: 'tool', detail: `${label}...`, toolName: name });
+    const { executeBrowserTool } = await import('../harness/browser-registry.js');
+    const result = await executeBrowserTool({ name, arguments: parsedArgs });
+    setAgentStatus({ phase: 'tool-result', detail: `${label} 完成`, toolName: name });
+    return result;
+  }
 
   if (name === 'esa_status' || name === 'esa_focus' || name === 'esa_anchor') {
+    const label = TOOL_LABELS[name] || name;
+    setAgentStatus({ phase: 'tool', detail: `${label}...`, toolName: name });
     const { executeEsaTool } = await import('../esa-core.js');
-    return executeEsaTool({ name, arguments: parsedArgs });
+    const result = executeEsaTool({ name, arguments: parsedArgs });
+    setAgentStatus({ phase: 'tool-result', detail: `${label} 完成`, toolName: name });
+    return result;
   }
 
   if (name === 'self_scan') {
+    setAgentStatus({ phase: 'tool', detail: '代码扫描...', toolName: 'self_scan', filePath: String(parsedArgs.filePath || '') });
     const { executeSelfScan } = await import('./self-scan.js');
-    return executeSelfScan(parsedArgs as { action: string; filePath?: string; query?: string });
+    const result = executeSelfScan(parsedArgs as { action: string; filePath?: string; query?: string });
+    setAgentStatus({ phase: 'tool-result', detail: '代码扫描完成', toolName: 'self_scan' });
+    return result;
   }
 
   // 兼容：AI 可能自然推断出 read-file / read_file 作为独立工具名
@@ -167,6 +197,9 @@ async function executeToolCall(toolCall: ToolCall): Promise<string> {
   //   相对路径 → 路由到 self-scan（只读 mainfold-agent 自身代码库）
   if (name === 'read-file' || name === 'read_file') {
     const filePath = (parsedArgs.filePath || parsedArgs.file || '') as string;
+    const label = TOOL_LABELS[name] || name;
+    const shortPath = filePath.length > 80 ? '...' + filePath.slice(-77) : filePath;
+    setAgentStatus({ phase: 'tool', detail: `${label}: ${shortPath}`, toolName: name, filePath });
     if (path.isAbsolute(filePath)) {
       const endpoint = '/api/tools/read-file';
       const response = await fetch(`${TOOLS_BASE_URL}${endpoint}`, {
@@ -175,13 +208,16 @@ async function executeToolCall(toolCall: ToolCall): Promise<string> {
         body: JSON.stringify({ filePath }),
       });
       const result = await response.json();
+      setAgentStatus({ phase: 'tool-result', detail: `${label} 完成`, toolName: name });
       return JSON.stringify(result);
     }
     const { executeSelfScan } = await import('./self-scan.js');
-    return executeSelfScan({
+    const result = executeSelfScan({
       action: 'read-file',
       filePath,
     });
+    setAgentStatus({ phase: 'tool-result', detail: `${label} 完成`, toolName: name });
+    return result;
   }
 
   // ── HTTP 代理工具（由 tools 路由处理后端逻辑）──
@@ -189,7 +225,8 @@ async function executeToolCall(toolCall: ToolCall): Promise<string> {
   const endpointMap: Record<string, string> = {
     exec: '/api/tools/exec',
     'read-file': '/api/tools/read-file',
-    'write-file': '/api/tools/write-file',
+    'write-file': '/api/tools/write-file',  // BUGFIX 2026-05-02: DeepSeek 输出 write_file（下划线）时查不到
+    write_file: '/api/tools/write-file',     // BUGFIX 2026-05-02: 下划线别名，使 write_file 名称也能路由
     ls: '/api/tools/ls',
     git: '/api/tools/git',
     http: '/api/tools/http',
@@ -200,6 +237,42 @@ async function executeToolCall(toolCall: ToolCall): Promise<string> {
     return JSON.stringify({ error: `Unknown tool: ${name}` });
   }
 
+  // 提取文件路径（write-file 常有 filePath 参数）
+  const fileArg = String(parsedArgs.filePath || parsedArgs.file || parsedArgs.dir || '');
+  const filePathStatus = fileArg.length > 80 ? '...' + fileArg.slice(-77) : fileArg;
+
+  // 区分写文件和其他工具
+  if (name === 'write-file') {
+    setAgentStatus({
+      phase: 'tool',
+      detail: `写入文件: ${filePathStatus || '...'}`,
+      toolName: name,
+      filePath: fileArg || undefined,
+    });
+  } else if (name === 'exec') {
+    const cmdPreview = String(parsedArgs.command || '').slice(0, 60);
+    setAgentStatus({ phase: 'tool', detail: `执行: ${cmdPreview}`, toolName: name });
+  } else {
+    const label = TOOL_LABELS[name] || name;
+    setAgentStatus({
+      phase: 'tool',
+      detail: `${label}${filePathStatus ? ': ' + filePathStatus : ''}`,
+      toolName: name,
+      filePath: fileArg || undefined,
+    });
+  }
+
+  // normalization: 模型有时输出 file 而非 filePath / dir 而非 dirPath
+  // 兼容 write-file 和 ls 工具
+  if (parsedArgs.file && !parsedArgs.filePath) {
+    parsedArgs.filePath = parsedArgs.file;
+    delete parsedArgs.file;
+  }
+  if (parsedArgs.dir && !parsedArgs.dirPath) {
+    parsedArgs.dirPath = parsedArgs.dir;
+    delete parsedArgs.dir;
+  }
+
   try {
     const response = await fetch(`${TOOLS_BASE_URL}${endpoint}`, {
       method: 'POST',
@@ -207,6 +280,8 @@ async function executeToolCall(toolCall: ToolCall): Promise<string> {
       body: JSON.stringify(parsedArgs),
     });
     const result = await response.json();
+    const label = TOOL_LABELS[name] || name;
+    setAgentStatus({ phase: 'tool-result', detail: `${label} 完成`, toolName: name });
     return JSON.stringify(result);
   } catch (err) {
     const error = err as Error;
@@ -448,7 +523,10 @@ export function createChatRouter(deps: {
       const writeFileTool = {
         type: 'function' as const,
         function: {
-          name: 'write-file',
+          // BUGFIX 2026-05-02: 从 write-file 改为 write_file，与 read_file 命名一致
+          // DeepSeek 模型在 function calling 中自然使用下划线命名（write_file）
+          // 连字符 write-file 会导致 "Unknown tool" 错误
+          name: 'write_file',
           description: '向文件写入内容。路径受安全白名单控制，超出沙箱的绝对路径需提前授权。',
           parameters: {
             type: 'object',
@@ -456,6 +534,10 @@ export function createChatRouter(deps: {
               filePath: {
                 type: 'string',
                 description: '目标文件路径（绝对路径需在白名单中）',
+              },
+              file: {
+                type: 'string',
+                description: 'filePath 的别名，二选一。',
               },
               content: {
                 type: 'string',
@@ -537,7 +619,8 @@ export function createChatRouter(deps: {
         },
       };
 
-      const builtInTools = [...esaTools, selfScanTool, readFileTool, execTool, writeFileTool, lsTool, gitTool, httpTool];
+      const browserTools = getBrowserToolDefinitions();
+      const builtInTools = [...esaTools, ...browserTools, selfScanTool, readFileTool, execTool, writeFileTool, lsTool, gitTool, httpTool];
       let requestTools = parsed.data.tools;
       const requestToolChoice = parsed.data.tool_choice;
       if (requestTools && requestTools.length > 0) {
@@ -547,6 +630,9 @@ export function createChatRouter(deps: {
         // WebUI 场景：用户未提供 tools → 默认注入内置工具
         requestTools = builtInTools;
       }
+
+      // 标记对话开始（前端轮询 agent 状态的起始时间点）
+      beginDialogue();
 
       while (toolCallDepth < MAX_TOOL_CALL_DEPTH) {
         toolCallDepth++;
@@ -567,6 +653,13 @@ export function createChatRouter(deps: {
           // thinking mode 兼容：通过保留原始 response message 的 reasoning_content 字段
           // 在 tool_calls 循环中自动回传，无需禁用 thinking mode
         }
+
+        setAgentStatus({
+          phase: 'api',
+          detail: toolCallDepth > 1
+            ? `调用 AI (第 ${toolCallDepth} 轮)...`
+            : '调用 AI 分析问题...',
+        });
 
         const apiResponse = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
           method: 'POST',
@@ -615,6 +708,11 @@ export function createChatRouter(deps: {
             });
           }
 
+          setAgentStatus({
+            phase: 'tool-result',
+            detail: '等待 AI 处理工具结果...',
+          });
+
           // 继续循环（让 DeepSeek 处理 tool 结果）
           continue;
         }
@@ -626,11 +724,13 @@ export function createChatRouter(deps: {
         // Phase 1: 输出重构（仅对非 function-calling 的最终回复生效）
         // BUGFIX 2026-05-01: 当 toolCallDepth > 1 时跳过重构，避免重构器吞掉长回复
         if (finalContent && finalContent.length > 10 && toolCallDepth > 0 && toolCallDepth <= 1) {
+          setAgentStatus({ phase: 'refactor', detail: '优化回复格式...' });
           const refactored = await refactorOutput(finalContent, finalReasoning, apiKey, DEEPSEEK_BASE_URL);
           finalContent = refactored.content;
           finalReasoning = refactored.reasoning || finalReasoning;
         }
 
+        setAgentStatus({ phase: 'finalizing', detail: '生成最终回复...' });
         break; // 退出循环
       }
 
@@ -685,6 +785,9 @@ export function createChatRouter(deps: {
         },
       });
 
+      // 重置 agent 状态（前端已收到响应，停止轮询）
+      resetAgentStatus();
+
     } catch (err) {
       const error = err as Error;
       console.error(`[chat] Unhandled error: ${error.message}`);
@@ -694,6 +797,7 @@ export function createChatRouter(deps: {
       triState.onChatComplete(false);
 
       res.status(500).json({ error: error.message });
+      resetAgentStatus();
     }
   });
 

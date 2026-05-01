@@ -179,10 +179,18 @@ export function createToolsRouter(deps?: {
 
   router.post('/api/tools/write-file', async (req: Request, res: Response) => {
     try {
-      const { filePath: writePath, content: writeContent } = req.body as { filePath?: string; content?: string };
+      // BUGFIX 2026-05-02: 兼容 file / filePath 两种参数名
+      // DeepSeek 模型经常输出 file 而非 filePath, chat.ts 有归一化层做转换
+      // 但作为最后一道防线, tools 端点自身也接受 file 参数
+      let { filePath: writePath, file: writeFileAlt, content: writeContent } = req.body as {
+        filePath?: string; file?: string; content?: string;
+      };
+      if (!writePath && writeFileAlt) {
+        writePath = writeFileAlt;
+      }
       const writeStart = Date.now();
       if (!writePath || typeof writePath !== 'string') {
-        res.status(400).json({ error: 'filePath (string) is required' });
+        res.status(400).json({ error: 'filePath (string) is required — use file or filePath parameter' });
         return;
       }
       if (writeContent === undefined || typeof writeContent !== 'string') {

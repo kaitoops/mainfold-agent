@@ -14,6 +14,7 @@
  *   GET  /api/memory/warm/search    — 搜索暖索引
  *   GET  /api/memory/warm/tag/:tag  — 按标签过滤
  *   GET  /api/memory/warm/context   — 获取上下文摘要
+ *   POST /api/memory/warm/add       — 添加暖索引条目
  *   POST /api/memory/review         — 手动触发整理
  *   GET  /api/memory/reviewer       — 整理器状态
  */
@@ -131,6 +132,38 @@ export function createMemoryRouter(deps: {
       const maxChars = parseInt(req.query.max_chars as string) || 3000;
       const summary = warmIndex.getContextSummary(maxChars);
       res.json({ summary, length: summary.length });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // ── POST /api/memory/warm/add ──
+
+  router.post('/api/memory/warm/add', (req: Request, res: Response) => {
+    try {
+      const { type, title, summary, tags, source, importance } = req.body;
+
+      if (!type || !title || !summary) {
+        res.status(400).json({ error: 'Required: type, title, summary' });
+        return;
+      }
+
+      const validTypes = ['conversation', 'tool_operation', 'technical_pattern', 'error_lesson', 'system_event'];
+      if (!validTypes.includes(type)) {
+        res.status(400).json({ error: `Invalid type. Must be one of: ${validTypes.join(', ')}` });
+        return;
+      }
+
+      const id = warmIndex.add({
+        type,
+        title: String(title).slice(0, 100),
+        summary: String(summary),
+        tags: Array.isArray(tags) ? tags.slice(0, 20) : [],
+        source: String(source || 'api'),
+        importance: typeof importance === 'number' ? Math.max(0, Math.min(1, importance)) : 0.5,
+      });
+
+      res.status(201).json({ id, status: 'added' });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }

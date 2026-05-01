@@ -1,0 +1,104 @@
+{
+  "contract_id": "I-BROWSER-001",
+  "contract_version": "2.0",
+  "status": "DRAFT",
+  "created_at": null,
+  "updated_at": null,
+  "task_description": "在 mainfold-agent 中部署并验证 browser-automation 能力",
+  "context_requirements": {
+    "knowledge_sources": [
+      "esa-core.ts (具身自注意力核心)",
+      "src/mempalace/ (记忆系统接口)",
+      "src/tri/ (三态监控系统)",
+      ".harness/ (HARNESS 合同驱动框架)"
+    ],
+    "required_capabilities": ["HTTP请求", "文件读写", "ESA自检", "Tool Function Calling"]
+  },
+  "deliverables": [
+    {
+      "id": "DEL-BROWSER-TOOL",
+      "description": "浏览器自动化工具（支持导航、截图、表单操作、内容提取）",
+      "file_path": ".harness/deliverables/browser-tool.md",
+      "acceptance_criteria_refs": ["AC-TOOL-EXISTS", "AC-TOOL-NAV", "AC-TOOL-EXTRACT"]
+    },
+    {
+      "id": "DEL-HARNESS-INTEGRATION",
+      "description": "browser-automation 工具注册到 HARNESS 工具链",
+      "file_path": ".harness/deliverables/harness-integration.md",
+      "acceptance_criteria_refs": ["AC-REGISTERED", "AC-WORKFLOW"]
+    },
+    {
+      "id": "DEL-VERIFICATION-REPORT",
+      "description": "功能验证报告（至少 3 个场景测试）",
+      "file_path": ".harness/deliverables/verification-report.md",
+      "acceptance_criteria_refs": ["AC-3SCENARIOS", "AC-ESA-SELFCHECK"]
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-TOOL-EXISTS",
+      "description": "浏览器自动化工具定义存在且可被 mainfold-agent 调用",
+      "verification_method": "检查 tools 定义中是否存在 browser_navigate/browser_screenshot/browser_extract 函数描述"
+    },
+    {
+      "id": "AC-TOOL-NAV",
+      "description": "工具支持导航到指定URL并返回页面标题",
+      "verification_method": "执行 GET 请求到 http://example.com 并验证返回内容包含 'Example Domain'"
+    },
+    {
+      "id": "AC-TOOL-EXTRACT",
+      "description": "工具支持从页面提取特定内容和元数据",
+      "verification_method": "验证 extract 函数能从 HTML 中提取 title、meta description 和正文文本前 200 字"
+    },
+    {
+      "id": "AC-REGISTERED",
+      "description": "browser-automation 工具在 HARNESS 工具链中注册",
+      "verification_method": "检查 HARNESS 工具列表中存在 browser-automation 条目"
+    },
+    {
+      "id": "AC-WORKFLOW",
+      "description": "浏览器自动化能力可作为 HARNESS 流程中的一个步骤被调用",
+      "verification_method": "设计一个简单工作流：导航→截图→验证，确认三步可串联执行"
+    },
+    {
+      "id": "AC-3SCENARIOS",
+      "description": "验证报告包含至少 3 个不同场景的测试结果",
+      "verification_method": "检查报告中是否有 3 个不同的测试用例记录（含输入、操作、预期、实际、结论）"
+    },
+    {
+      "id": "AC-ESA-SELFCHECK",
+      "description": "每个自动化操作执行前后调用 ESA 自检，输出注意力状态变化",
+      "verification_method": "验证每步操作日志中包含 [ESA] 标签的注意力状态记录"
+    }
+  ],
+  "success_criteria": {
+    "summary": "browser-automation 能力完成本地部署、工具链注册、功能验证三个里程碑",
+    "minimum_acceptance_rate": 0.80,
+    "gating_criteria": ["AC-TOOL-EXISTS", "AC-TOOL-NAV", "AC-TOOL-EXTRACT"]
+  },
+  "quality_metrics": {
+    "functional_completeness": 0.35,
+    "correctness": 0.30,
+    "robustness": 0.15,
+    "documentation_quality": 0.10,
+    "integration_quality": 0.10
+  },
+  "token_budget": {
+    "generator": 2000,
+    "evaluator": 800,
+    "total": 2800,
+    "hard_limit": 3000
+  },
+  "checkpoints": [
+    {
+      "checkpoint_id": "CKPT-TOOL",
+      "trigger": "DEL-BROWSER-TOOL 完成",
+      "description": "浏览器自动化工具定义已写入并可通过 HTTP 验证"
+    },
+    {
+      "checkpoint_id": "CKPT-INTEGRATION",
+      "trigger": "DEL-HARNESS-INTEGRATION 完成",
+      "description": "工具已注册到 HARNESS，工作流可串联"
+    }
+  ]
+}

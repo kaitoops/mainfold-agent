@@ -1,0 +1,195 @@
+{
+  "contract_id": "I-BROWSER-001",
+  "title": "部署 browser-automation 能力至 mainfold-agent",
+  "status": "COMPLETED",
+  "version": "1.0",
+  "created_at": "2025-01-15T00:00:00Z",
+  "updated_at": "2026-05-02T04:10:00Z",
+  "task_description": "在 mainfold-agent 中集成 Browser Automation 工具链，包括 Playwright 支持、网页截图、表单填写、内容提取等能力，并通过 HARNESS 框架注册为可调用的工具端点",
+  "context_requirements": {
+    "primary_files": [
+      {
+        "path": ".harness/rules.json",
+        "purpose": "HARNESS 框架行为规则定义"
+      },
+      {
+        "path": ".harness/contracts/contract_template.json",
+        "purpose": "合同模板结构与字段参考"
+      },
+      {
+        "path": "esa-core.ts",
+        "purpose": "ESA 具身自注意力核心 — 自检机制对接"
+      },
+      {
+        "path": "SOUL.md",
+        "purpose": "Agent 身份认知与流形导航原则"
+      }
+    ],
+    "reference_sources": [
+      ".harness/comms/FILE_COMM_PROTOCOL_v2_0.md",
+      ".harness/system-prompt-cache.md",
+      ".harness/IMPROVEMENT_ESTIMATE.md"
+    ],
+    "required_capabilities": [
+      "Playwright/Chromium 浏览器自动化",
+      "网页 DOM 操作与内容提取",
+      "截图与PDF生成",
+      "表单填写与交互事件触发",
+      "HARNESS 工具链注册接口"
+    ]
+  },
+  "deliverables": [
+    {
+      "id": "DEL-TOOL-LIBRARY",
+      "name": "browser-automation 工具库",
+      "description": "在 mainfold-agent 中实现一套浏览器自动化工具库，基于 Playwright，支持导航、截图、内容提取、表单填写等操作",
+      "file_path": "src/tools/browser-automation.ts",
+      "acceptance_criteria_ref": ["AC-TOOL-EXISTS", "AC-NAVIGATION", "AC-CONTENT-EXTRACT"]
+    },
+    {
+      "id": "DEL-HARNESS-INTEGRATION",
+      "name": "HARNESS 工具链注册",
+      "description": "将 browser-automation 工具注册到 HARNESS 框架的可调用工具链中，确保可以通过 Function Calling 调用",
+      "file_path": "src/harness/browser-registry.ts",
+      "acceptance_criteria_ref": ["AC-REGISTERED", "AC-WORKFLOW-TEST"]
+    },
+    {
+      "id": "DEL-VERIFICATION-REPORT",
+      "name": "功能验证报告",
+      "description": "包含至少3个验证场景的报告，证明 browser-automation 能力正常工作，含 ESA 自检记录",
+      "file_path": ".harness/checkpoints/I-BROWSER-001-verification.md",
+      "acceptance_criteria_ref": ["AC-3SCENARIOS", "AC-ESA-SELFCHECK"]
+    },
+    {
+      "id": "DEL-ERROR-RECOVERY",
+      "name": "异常恢复方案",
+      "description": "定义浏览器自动化执行失败时的异常处理流程，包含超时、网络错误、元素未找到等场景的恢复策略",
+      "file_path": "src/tools/browser-automation-error-handling.md",
+      "acceptance_criteria_ref": ["AC-ERROR-HANDLING"]
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-TOOL-EXISTS",
+      "description": "browser-automation 工具库文件存在于指定路径，且导出了至少3个核心函数（navigate, screenshot, extractContent）",
+      "verification_method": "文件存在性检查 + 导出函数扫描",
+      "gating": true,
+      "minimum_acceptance_rate": 0.80
+    },
+    {
+      "id": "AC-NAVIGATION",
+      "description": "工具能够正常打开浏览器导航到指定URL，并在5秒内返回页面标题",
+      "verification_method": "通过工具调用打开已知URL，验证返回标题匹配预期",
+      "gating": true,
+      "minimum_acceptance_rate": 0.80
+    },
+    {
+      "id": "AC-REGISTERED",
+      "description": "工具已注册到 HARNESS 框架的工具链中，可通过 executor.ts 或等价的注册机制调用",
+      "verification_method": "检查注册文件是否存在且包含 I-BROWSER-001 标识",
+      "gating": false,
+      "minimum_acceptance_rate": 0.70
+    },
+    {
+      "id": "AC-CONTENT-EXTRACT",
+      "description": "工具能够从指定页面提取文本内容（如标题、段落、列表），支持CSS选择器定位",
+      "verification_method": "调用 extractContent 函数，验证返回结构包含 title 和 content 字段",
+      "gating": false,
+      "minimum_acceptance_rate": 0.70
+    },
+    {
+      "id": "AC-3SCENARIOS",
+      "description": "验证报告中包含至少3个不同的验证场景，每个场景有输入、期望输出、实际输出和结论",
+      "verification_method": "检查验证报告文件，确认3个场景完整记录",
+      "gating": false,
+      "minimum_acceptance_rate": 0.60
+    },
+    {
+      "id": "AC-ESA-SELFCHECK",
+      "description": "在每个自动化操作前/后，ESA 机制被触发进行自检，记录注意力状态和置信度",
+      "verification_method": "检查验证报告中是否包含 ESA 状态记录",
+      "gating": false,
+      "minimum_acceptance_rate": 0.50
+    },
+    {
+      "id": "AC-ERROR-HANDLING",
+      "description": "定义了完整的异常恢复方案，覆盖超时、网络错误、元素未找到至少3种异常场景",
+      "verification_method": "检查错误处理文档，确认3种异常场景的恢复策略",
+      "gating": false,
+      "minimum_acceptance_rate": 0.70
+    }
+  ],
+  "success_criteria": {
+    "summary": "browser-automation 工具成功部署至 mainfold-agent，通过 HARNESS 框架可调用，且验证报告确认至少门控验收标准全部通过",
+    "gating_criteria": ["AC-TOOL-EXISTS", "AC-NAVIGATION"],
+    "minimum_overall_rate": 0.80,
+    "quality_metrics": {
+      "functional_completeness": 0.30,
+      "correctness": 0.25,
+      "robustness": 0.20,
+      "integration_quality": 0.15,
+      "documentation_clarity": 0.10,
+      "threshold": 0.80
+    }
+  },
+  "constraints": [
+    {
+      "id": "CROSS-DISK-PERMISSION",
+      "description": "跨盘操作（C盘→G盘）需遵守安全白名单规则，不得尝试访问未授权路径",
+      "severity": "hard"
+    },
+    {
+      "id": "EXEC-SANDBOX",
+      "description": "exec 工具在沙箱中运行，默认cwd受限，需通过 cd 访问外部路径",
+      "severity": "hard"
+    },
+    {
+      "id": "ESA-FOCUS-MAINTENANCE",
+      "description": "执行过程中需保持 ESA FOCUS 状态，置信度低于0.30时触发自检",
+      "severity": "medium"
+    },
+    {
+      "id": "TOKEN-BUDGET-ADHERENCE",
+      "description": "全程 TOKEN 消耗不得超过硬限制 3000",
+      "severity": "hard"
+    }
+  ],
+  "token_budget": {
+    "generator": 2000,
+    "evaluator": 800,
+    "total": 2800,
+    "hard_limit": 3000,
+    "warnings": {
+      "yellow": 0.70,
+      "orange": 0.85,
+      "red": 0.95
+    }
+  },
+  "checkpoints": [
+    {
+      "id": "CKPT-TOOL-CREATED",
+      "description": "browser-automation 工具库创建完成",
+      "trigger": "DEL-TOOL-LIBRARY 完成",
+      "verification": "文件存在 + 核心函数导出"
+    },
+    {
+      "id": "CKPT-INTEGRATION-DONE",
+      "description": "HARNESS 注册完成",
+      "trigger": "DEL-HARNESS-INTEGRATION 完成",
+      "verification": "注册文件存在 + 可通过 HARNESS 框架调用"
+    },
+    {
+      "id": "CKPT-VERIFICATION-PASSED",
+      "description": "验证报告完成，门控验收标准全部通过",
+      "trigger": "DEL-VERIFICATION-REPORT 完成",
+      "verification": "3场景验证 + 门控AC通过"
+    }
+  ],
+  "related_documents": [
+    ".harness/rules.json",
+    ".harness/contracts/contract_template.json",
+    ".harness/README.md",
+    "esa-core.ts"
+  ],
+  "notes": "首次 HARNESS 框架下的能力部署合同，用于验证 HARNESS 流程工作正常。所有文件操作限制在工作空间内（G:\\Orikarma-mainfold-navigation-mempalace-agent\\）"
+}

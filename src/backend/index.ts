@@ -56,6 +56,7 @@ import { HealthMonitor } from './health-signal.js';
 
 // ── 第二轮：WebUI 前端所需端点 ──
 import { createInjectRouter } from './routes/inject.js';
+import { createAgentStatusRouter } from './routes/agent-status.js';
 import { createModelsRouter } from './routes/models.js';
 import { createMemoriesRouter } from './routes/memories.js';
 import { createSecurityRouter } from './routes/security.js';
@@ -392,6 +393,10 @@ app.use(chatRouter);
 
 const injectRouter = createInjectRouter();
 app.use(injectRouter);
+
+// Agent 实时状态追踪（前端轮询用）
+const agentStatusRouter = createAgentStatusRouter();
+app.use(agentStatusRouter);
 
 const modelsRouter = createModelsRouter();
 app.use(modelsRouter);
