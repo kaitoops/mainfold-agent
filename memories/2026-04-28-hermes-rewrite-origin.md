@@ -23,7 +23,7 @@
 ### 关键事实（基于重构历史）
 - 根目录: `G:\Hermes`
 - LLM: DeepSeek V4 Flash (主, 1M上下文) + DeepSeek R1 (深度推理)
-- API Key: `sk-6719764a4db84c84b3e30fa77abae667`（2026-04-28 22:49 更新，原 key 已作废）
+- API Key: `sk-...`（2026-04-28 已吊销，详见 .env 环境变量管理）
 - **重要架构事实**: Hermes Gateway 运行在 WSL，读取 `/root/.hermes/` 下的配置，与 Windows `G:\Hermes\` 文件独立。配置更新必须同时修改两边并重启 Gateway。
 - hermes-core.json v1.1.0 (单一真相源)
 
