@@ -18,7 +18,7 @@ import * as path from 'path';
 import * as url from 'url';
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
-const CONFIG_PATH = path.resolve(__dirname, '../../config/security-config.json');
+const CONFIG_PATH = path.resolve(__dirname, '../../../config/security-config.json');
 
 // ── 安全基线（不可修改的硬编码规则）──
 
@@ -42,6 +42,53 @@ const PROTECTED_PATHS = [
   '~/.aws',
   '~/.config/gcloud',
 ];
+
+// ── 额外路径白名单（持久化 JSON）──
+
+interface AllowedPathsData {
+  paths: string[];
+  updated_at: string;
+}
+
+const ALLOWED_PATHS_FILE = path.resolve(__dirname, '../../../config/allowed-paths.json');
+
+function loadAllowedPaths(): string[] {
+  if (!fs.existsSync(ALLOWED_PATHS_FILE)) return [];
+  try {
+    const data = JSON.parse(fs.readFileSync(ALLOWED_PATHS_FILE, 'utf-8')) as AllowedPathsData;
+    return data.paths || [];
+  } catch {
+    return [];
+  }
+}
+
+function saveAllowedPath(absolutePath: string): void {
+  const paths = loadAllowedPaths();
+  const normalized = path.resolve(absolutePath); // 规范化路径
+  if (!paths.includes(normalized)) {
+    paths.push(normalized);
+    const dir = path.dirname(ALLOWED_PATHS_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(ALLOWED_PATHS_FILE, JSON.stringify({ paths, updated_at: new Date().toISOString() }, null, 2));
+  }
+}
+
+/** 检查绝对路径是否在白名单内（前缀匹配，允许子目录） */
+export function isPathAllowed(absolutePath: string): boolean {
+  const allowedPaths = loadAllowedPaths();
+  const normalized = path.resolve(absolutePath);
+  return allowedPaths.some(p => normalized.startsWith(p));
+}
+
+/** 添加路径到白名单（持久化） */
+export function addAllowedPath(absolutePath: string): void {
+  saveAllowedPath(absolutePath);
+}
+
+/** 获取所有白名单路径 */
+export function getAllowedPaths(): string[] {
+  return loadAllowedPaths();
+}
 
 // ── 可配置设置项 ──
 

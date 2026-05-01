@@ -26,6 +26,20 @@ interface InjectMessage {
 
 const injectQueue: InjectMessage[] = [];
 
+/** 跨模块：工具权限请求推送到注入队列（由 tools.ts 的 safeResolve 在遇到未授权路径时调用） */
+export function pushPermissionRequest(absolutePath: string, toolName: string, detail?: string): string {
+  const msg: InjectMessage = {
+    id: `perm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    content: `[权限请求] Agent 需要通过 "${toolName}" 访问路径:\n  ${absolutePath}${detail ? '\n  上下文: ' + detail : ''}\n\n如需授予永久权限，将路径添加到安全设置的 allowed_extra_paths。`,
+    source: 'system',
+    timestamp: new Date().toISOString(),
+    priority: 2,
+  };
+  injectQueue.push(msg);
+  console.log(`[inject] Permission request queued: ${toolName} → ${absolutePath} (${msg.id})`);
+  return msg.id;
+}
+
 // ── 请求验证 ──
 
 const InjectRequestSchema = z.object({

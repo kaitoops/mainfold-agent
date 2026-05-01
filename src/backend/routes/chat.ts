@@ -162,12 +162,25 @@ async function executeToolCall(toolCall: ToolCall): Promise<string> {
   }
 
   // 兼容：AI 可能自然推断出 read-file / read_file 作为独立工具名
-  // 实际上这是 self_scan 的一个 action，路由到 executeSelfScan
+  // 根据路径类型分流：
+  //   绝对路径 → 路由到 tools 路由（受安全白名单控制，可读外部文件）
+  //   相对路径 → 路由到 self-scan（只读 mainfold-agent 自身代码库）
   if (name === 'read-file' || name === 'read_file') {
+    const filePath = (parsedArgs.filePath || parsedArgs.file || '') as string;
+    if (path.isAbsolute(filePath)) {
+      const endpoint = '/api/tools/read-file';
+      const response = await fetch(`${TOOLS_BASE_URL}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filePath }),
+      });
+      const result = await response.json();
+      return JSON.stringify(result);
+    }
     const { executeSelfScan } = await import('./self-scan.js');
     return executeSelfScan({
       action: 'read-file',
-      filePath: (parsedArgs.filePath || parsedArgs.file || '') as string,
+      filePath,
     });
   }
 
@@ -387,28 +400,144 @@ export function createChatRouter(deps: {
 
       // 兼容：AI 可能自然推断出 read-file / read_file 为独立工具名
       // 注册为独立工具定义，让 DeepSeek 知道可以调用它
+      // 注意：绝对路径路由到 tools 路由（受安全白名单控制），相对路径路由到 self-scan
       const readFileTool = {
         type: 'function' as const,
         function: {
           name: 'read_file',
-          description: '读取 mainfold-agent 自身源代码中的单个文件。当你需要通过 self_scan 知道文件存在后读取其实际内容时使用。参数 file 支持相对路径（如 "esa-core.ts"）或文件名。',
+          description: '读取文件。支持两种模式：① 绝对路径（如 "C:\\path\\file.txt"）→ 通过安全白名单控制，可读取外部文件；② 相对路径（如 "esa-core.ts"）→ 读取 mainfold-agent 自身源代码。',
           parameters: {
             type: 'object',
             properties: {
-              file: {
-                type: 'string',
-                description: '目标文件的路径或文件名（如 "esa-core.ts" 或 "routes/chat.ts"）',
-              },
               filePath: {
                 type: 'string',
-                description: '目标文件的完整相对路径（file 参数的别名，二选一）',
+                description: '目标文件的路径。绝对路径读取外部文件（需在白名单中），相对路径读取自身源代码。',
+              },
+              file: {
+                type: 'string',
+                description: 'filePath 的别名，二选一。',
               },
             },
           },
         },
       };
 
-      const builtInTools = [...esaTools, selfScanTool, readFileTool];
+      // Phase D 工具定义：使 DeepSeek 可通过 function calling 调用沙箱工具
+      const execTool = {
+        type: 'function' as const,
+        function: {
+          name: 'exec',
+          description: '在沙箱工作目录中执行 shell 命令。命令本身不受沙箱限制（可在命令中 cd 到任何位置），但默认 cwd 设置在沙箱内。可通过 cd 访问 HARNESS 等外部路径。',
+          parameters: {
+            type: 'object',
+            properties: {
+              command: {
+                type: 'string',
+                description: '要执行的 shell 命令（如 "ls"、"dir"、"type README.md"）',
+              },
+              timeout: {
+                type: 'number',
+                description: '超时时间（毫秒），默认 30000',
+              },
+            },
+            required: ['command'],
+          },
+        },
+      };
+
+      const writeFileTool = {
+        type: 'function' as const,
+        function: {
+          name: 'write-file',
+          description: '向文件写入内容。路径受安全白名单控制，超出沙箱的绝对路径需提前授权。',
+          parameters: {
+            type: 'object',
+            properties: {
+              filePath: {
+                type: 'string',
+                description: '目标文件路径（绝对路径需在白名单中）',
+              },
+              content: {
+                type: 'string',
+                description: '要写入的文件内容',
+              },
+            },
+            required: ['filePath', 'content'],
+          },
+        },
+      };
+
+      const lsTool = {
+        type: 'function' as const,
+        function: {
+          name: 'ls',
+          description: '列出目录内容。路径受安全白名单控制，超出沙箱的绝对路径需提前授权。',
+          parameters: {
+            type: 'object',
+            properties: {
+              dirPath: {
+                type: 'string',
+                description: '要列出的目录路径。不传则列出沙箱根目录。',
+              },
+            },
+          },
+        },
+      };
+
+      const gitTool = {
+        type: 'function' as const,
+        function: {
+          name: 'git',
+          description: '执行 Git 操作。工作目录受安全白名单控制。',
+          parameters: {
+            type: 'object',
+            properties: {
+              args: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Git 参数列表，如 ["log", "--oneline", "-5"]',
+              },
+              dir: {
+                type: 'string',
+                description: 'Git 仓库目录路径（绝对路径需在白名单中）',
+              },
+            },
+            required: ['args'],
+          },
+        },
+      };
+
+      const httpTool = {
+        type: 'function' as const,
+        function: {
+          name: 'http',
+          description: '发送 HTTP 请求（只读为主：GET/HEAD/POST/PUT/DELETE）。用于调用外部 API 或获取网页内容。',
+          parameters: {
+            type: 'object',
+            properties: {
+              url: {
+                type: 'string',
+                description: '请求目标 URL',
+              },
+              method: {
+                type: 'string',
+                description: 'HTTP 方法：GET（默认）/POST/PUT/DELETE/HEAD',
+              },
+              headers: {
+                type: 'object',
+                description: '请求头键值对（可选）',
+              },
+              body: {
+                type: 'string',
+                description: 'POST/PUT 请求体（可选）',
+              },
+            },
+            required: ['url'],
+          },
+        },
+      };
+
+      const builtInTools = [...esaTools, selfScanTool, readFileTool, execTool, writeFileTool, lsTool, gitTool, httpTool];
       let requestTools = parsed.data.tools;
       const requestToolChoice = parsed.data.tool_choice;
       if (requestTools && requestTools.length > 0) {

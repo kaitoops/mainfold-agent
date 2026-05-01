@@ -19,16 +19,28 @@ import * as path from 'path';
 import { exec as childExec } from 'child_process';
 import type { ColdMemory } from '../memory/cold-db.js';
 import type { WarmIndex } from '../memory/warm-index.js';
+import { isPathAllowed } from './security.js';
+import { pushPermissionRequest } from './inject.js';
 
 // ── 沙箱路径 ──
 
 const SHARED_WORKSPACE = process.env.TOOLS_SHARED_WORKSPACE || 'G:\\shared-workspace';
 
-/** 确保路径在沙箱内 */
-function safeResolve(userPath: string): string {
-  // 禁止绝对路径 / 上级目录逃逸
+/** 确保路径在沙箱内。toolName 仅用于权限请求日志 */
+function safeResolve(userPath: string, toolName?: string): string {
+  // 绝对路径：查白名单
   if (path.isAbsolute(userPath)) {
-    throw new Error(`Absolute path not allowed: ${userPath}`);
+    if (isPathAllowed(userPath)) {
+      // 在白名单内，直接返回解析后的路径
+      return userPath;
+    }
+    // 不在白名单 → 推送到注入队列请求审批
+    pushPermissionRequest(userPath, toolName || 'unknown');
+    throw new Error(
+      `Permission required: ${userPath} is not in the allowed paths whitelist. ` +
+      `A permission request has been sent to the user via the inject queue. ` +
+      `The user must add this path to allowed_extra_paths before retrying.`
+    );
   }
   const normalized = path.normalize(userPath);
   if (normalized.startsWith('..')) {
@@ -124,7 +136,7 @@ export function createToolsRouter(deps?: {
         return;
       }
 
-      const safePath = safeResolve(readPath);
+      const safePath = safeResolve(readPath, 'read-file');
       if (!fs.existsSync(safePath)) {
         res.status(404).json({ error: `File not found: ${readPath}` });
         return;
@@ -178,7 +190,7 @@ export function createToolsRouter(deps?: {
         return;
       }
 
-      const safePath = safeResolve(writePath);
+      const safePath = safeResolve(writePath, 'write-file');
       // 确保目录存在
       const dir = path.dirname(safePath);
       if (!fs.existsSync(dir)) {
@@ -220,7 +232,7 @@ export function createToolsRouter(deps?: {
       const { dirPath: listDir } = req.body as { dirPath?: string };
       const lsStart = Date.now();
       const targetDir = listDir && typeof listDir === 'string' ? listDir : '.';
-      const safePath = safeResolve(targetDir);
+      const safePath = safeResolve(targetDir, 'ls');
 
       if (!fs.existsSync(safePath)) {
         res.status(404).json({ error: `Directory not found: ${targetDir}` });
@@ -291,7 +303,7 @@ export function createToolsRouter(deps?: {
 
       // 解析工作目录
       const workDir = dir && typeof dir === 'string'
-        ? safeResolve(dir)
+        ? safeResolve(dir, 'git')
         : SHARED_WORKSPACE;
 
       // 构建 git 命令（安全：只允许安全参数，不允许管道/重定向）
