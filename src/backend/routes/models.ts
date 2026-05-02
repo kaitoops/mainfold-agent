@@ -29,6 +29,9 @@ const AVAILABLE_MODELS = [
   'deepseek-v4-pro',
   'deepseek-v4-flash',
   'deepseek-reasoner',
+  'mimo-v2.5',
+  'mimo-v2.5-pro',
+  'mimo-v2.5-flash',
 ];
 
 // ── 路由器 ──

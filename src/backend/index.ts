@@ -37,6 +37,11 @@ dotenv.config({ path: path.join(WORKSPACE_ROOT, '.env') });
 
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
 const DEEPSEEK_BASE_URL = process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/v1';
+
+// MiMo (小米) — 可选 Provider
+const MIMO_API_KEY = process.env.MIMO_API_KEY || '';
+const MIMO_BASE_URL = process.env.MIMO_BASE_URL || 'https://api.xiaomimimo.com/v1';
+
 const TAVILY_API_KEY = process.env.TAVILY_API_KEY || '';
 const PORT = parseInt(process.env.PORT || '8000', 10);
 
@@ -240,6 +245,7 @@ app.get('/api/health', (_req: Request, res: Response) => {
     services: {
       backend: 'ok',
       deepseek_api: DEEPSEEK_API_KEY ? 'configured' : 'missing',
+      mimo_api: MIMO_API_KEY ? 'configured' : 'missing',
     },
     tri: {
       A: triDims.A,
@@ -331,6 +337,8 @@ const chatRouter = createChatRouter({
   triState,
   healthMonitor,
   apiKey: DEEPSEEK_API_KEY,
+  mimoApiKey: MIMO_API_KEY,
+  mimoBaseUrl: MIMO_BASE_URL,
   coldMemory, // Phase E: 冷记忆日志
   getSeedContext: async (userMessage: string) => {
     const kg = getSharedKg();
@@ -479,6 +487,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`[mainfold-agent] EB-006: ${eb006 ? 'loaded' : 'not found'}`);
   console.log(`[mainfold-agent] TRI: A=${triState.getDimensions().A} S=${triState.getDimensions().S} H=${triState.getDimensions().H}`);
   console.log(`[mainfold-agent] DeepSeek API: ${DEEPSEEK_API_KEY ? 'configured' : 'NOT CONFIGURED'}`);
+  console.log(`[mainfold-agent] MiMo API: ${MIMO_API_KEY ? 'configured (optional)' : 'NOT CONFIGURED (optional)'}`);
   console.log(`[mainfold-agent] Phase E: ColdMemory+WarmIndex+MemoryReviewer active`);
   console.log(`[mainfold-agent] SICR router: /api/sicr/search (Scaffolded In-Context Retrieval)`);
   console.log(`[mainfold-agent] ESA Core: ${esaCore.state} (confidence=${esaCore.confidence.toFixed(2)})`);

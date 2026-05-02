@@ -25,6 +25,8 @@ import {
   ChevronRight,
   Zap,
   Trash2,
+  Image,
+  X,
 } from 'lucide-react';
 
 // ── 常量 ──
@@ -42,6 +44,12 @@ interface Message {
   reasoning_content?: string | null;
   timestamp: string;
   token_used?: number;
+  senderModel?: string;
+  images?: string[];
+  /** 流式输出标记：true 表示内容仍在逐 token 更新中 */
+  _streaming?: boolean;
+  /** 工具调用深度 */
+  tool_call_depth?: number;
 }
 
 interface Session {
@@ -58,6 +66,17 @@ interface InjectMessage {
   source: string;
   timestamp: string;
   priority: number;
+}
+
+interface ModelInfo {
+  id: string;
+  name: string;
+  description: string;
+  context: string;
+}
+
+interface ModelsResponse {
+  providers: Record<string, { models: ModelInfo[] }>;
 }
 
 // ── Agent 实时状态类型 ──
@@ -176,9 +195,13 @@ export default function ChatPage() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
   const [agentPollActive, setAgentPollActive] = useState(false);
+  const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
+  const [uploadedImages, setUploadedImages] = useState<string[]>([]);
+  const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ── 会话持久化 ──
 
@@ -191,6 +214,27 @@ export default function ChatPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [sessions, activeSessionId]);
+
+  // ── 获取可用模型 ──
+
+  useEffect(() => {
+    const fetchModels = async () => {
+      try {
+        const res = await fetch('/api/models');
+        if (res.ok) {
+          const data: ModelsResponse = await res.json();
+          const all: ModelInfo[] = [];
+          for (const provider of Object.values(data.providers)) {
+            all.push(...provider.models);
+          }
+          setAvailableModels(all);
+        }
+      } catch {
+        // 静默
+      }
+    };
+    fetchModels();
+  }, []);
 
   // ── 注入轮询 ──
 
@@ -281,6 +325,39 @@ export default function ChatPage() {
     [activeSessionId, sessions],
   );
 
+  // ── 切换模型 ──
+
+  const switchModel = useCallback((sessionId: string, modelId: string) => {
+    setSessions((prev) =>
+      prev.map((s) =>
+        s.id === sessionId ? { ...s, model: modelId } : s,
+      ),
+    );
+    setModelDropdownOpen(false);
+  }, []);
+
+  // ── 图片上传 ──
+
+  const handleImageSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    Array.from(files).forEach((file) => {
+      if (!file.type.startsWith('image/')) return;
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const dataUrl = event.target?.result as string;
+        setUploadedImages((prev) => [...prev, dataUrl]);
+      };
+      reader.readAsDataURL(file);
+    });
+    // 重置 input 以允许重复选择同一文件
+    e.target.value = '';
+  }, []);
+
+  const removeImage = useCallback((index: number) => {
+    setUploadedImages((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
   // ── 发送消息 ──
 
   const sendMessage = useCallback(async () => {
@@ -301,11 +378,16 @@ export default function ChatPage() {
       session = newSession;
     }
 
+    const textContent = input.trim();
+    const images = [...uploadedImages];
+    const hasImages = images.length > 0;
+
     const userMsg: Message = {
       id: generateId(),
       role: 'user',
-      content: input.trim(),
+      content: textContent,
       timestamp: new Date().toISOString(),
+      images: hasImages ? images : undefined,
     };
 
     // 添加用户消息
@@ -316,30 +398,52 @@ export default function ChatPage() {
           ? {
               ...s,
               messages: [...s.messages, userMsg],
-              title: s.messages.length === 0 ? input.trim().slice(0, 30) : s.title,
+              title: s.messages.length === 0 ? (textContent || '(图片)').slice(0, 30) : s.title,
             }
           : s,
       ),
     );
     setInput('');
+    setUploadedImages([]);
     setIsLoading(true);
 
     try {
-      // 构建对话历史
+      // 构建对话历史（多模态兼容）
       const currentSession = sessions.find((s) => s.id === sessionId);
-      const history = (currentSession?.messages ?? []).map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
+      const history = (currentSession?.messages ?? []).map((m) => {
+        if (m.role === 'user' && m.images && m.images.length > 0) {
+          const parts: Record<string, unknown>[] = [];
+          if (m.content) parts.push({ type: 'text', text: m.content });
+          m.images.forEach((url) => {
+            parts.push({ type: 'image_url', image_url: { url } });
+          });
+          return { role: m.role, content: parts };
+        }
+        return { role: m.role, content: m.content };
+      });
+
+      // 构建当前消息 content
+      let messagePayload: string | Record<string, unknown>[];
+      if (hasImages) {
+        const parts: Record<string, unknown>[] = [];
+        if (textContent) parts.push({ type: 'text', text: textContent });
+        images.forEach((url) => {
+          parts.push({ type: 'image_url', image_url: { url, detail: 'auto' } });
+        });
+        messagePayload = parts;
+      } else {
+        messagePayload = textContent;
+      }
 
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: input.trim(),
+          message: messagePayload,
           model: currentSession?.model ?? DEFAULT_MODEL,
           conversation_history: history,
           session_id: sessionId,
+          stream: true,
         }),
       });
 
@@ -347,24 +451,186 @@ export default function ChatPage() {
         throw new Error(`API error: ${res.status}`);
       }
 
-      const data = await res.json();
+      // ── SSE 流式接收 ──
+      const assistantMsgId = generateId();
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let sseBuffer = '';
+      let streamContent = '';
+      let streamReasoning = '';
+      let streamTokenUsed = 0;
+      let streamTimestamp = '';
+      let streamDepth = 0;
 
-      const assistantMsg: Message = {
-        id: generateId(),
-        role: 'assistant',
-        content: data.content,
-        reasoning_content: data.reasoning_content,
-        timestamp: data.timestamp,
-        token_used: data.token_used,
-      };
-
+      // 先插入一条空的 assistant 消息（立即显示气泡）
       setSessions((prev) =>
         prev.map((s) =>
           s.id === sessionId
-            ? { ...s, messages: [...s.messages, assistantMsg] }
+            ? {
+                ...s,
+                messages: [
+                  ...s.messages,
+                  {
+                    id: assistantMsgId,
+                    role: 'assistant' as const,
+                    content: '',
+                    timestamp: new Date().toISOString(),
+                    senderModel: currentSession?.model ?? DEFAULT_MODEL,
+                    _streaming: true,
+                  },
+                ],
+              }
             : s,
         ),
       );
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          sseBuffer += decoder.decode(value, { stream: true });
+
+          const lines = sseBuffer.split('\n');
+          sseBuffer = lines.pop() || '';
+
+          let currentEvent = '';
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              currentEvent = line.slice(7).trim();
+              continue;
+            }
+            if (line.startsWith('data: ')) {
+              const jsonStr = line.slice(6).trim();
+              try {
+                const evt = JSON.parse(jsonStr);
+                const evtType = currentEvent || (evt.token_used !== undefined ? 'done' : evt.content && evt.accumulated !== undefined ? 'token' : 'unknown');
+                currentEvent = '';
+
+                if (evtType === 'token' || (evt.content && evt.accumulated !== undefined)) {
+                  // token 事件：逐字追加
+                  streamContent = evt.accumulated;
+                  setSessions((prev) =>
+                    prev.map((s) =>
+                      s.id === sessionId
+                        ? {
+                            ...s,
+                            messages: s.messages.map((m) =>
+                              m.id === assistantMsgId
+                                ? { ...m, content: streamContent, _streaming: true }
+                                : m
+                            ),
+                          }
+                        : s,
+                    ),
+                  );
+                } else if (evt.tool_calls) {
+                  // tool_calls 事件：显示工具调用信息
+                  const toolInfo = evt.tool_calls.map((tc: { name: string }) => tc.name).join(', ');
+                  streamContent += `\n\n🔧 调用工具: ${toolInfo}\n\n`;
+                  setSessions((prev) =>
+                    prev.map((s) =>
+                      s.id === sessionId
+                        ? {
+                            ...s,
+                            messages: s.messages.map((m) =>
+                              m.id === assistantMsgId
+                                ? { ...m, content: streamContent, _streaming: true }
+                                : m
+                            ),
+                          }
+                        : s,
+                    ),
+                  );
+                } else if (evt.tool_start) {
+                  // 工具开始执行
+                  streamContent += `⏳ ${evt.tool_name || evt.name}...\n`;
+                  setSessions((prev) =>
+                    prev.map((s) =>
+                      s.id === sessionId
+                        ? {
+                            ...s,
+                            messages: s.messages.map((m) =>
+                              m.id === assistantMsgId
+                                ? { ...m, content: streamContent, _streaming: true }
+                                : m
+                            ),
+                          }
+                        : s,
+                    ),
+                  );
+                } else if (evt.tool_result) {
+                  // 工具执行完成
+                  streamContent += `✅ ${evt.name} 完成\n`;
+                  setSessions((prev) =>
+                    prev.map((s) =>
+                      s.id === sessionId
+                        ? {
+                            ...s,
+                            messages: s.messages.map((m) =>
+                              m.id === assistantMsgId
+                                ? { ...m, content: streamContent, _streaming: true }
+                                : m
+                            ),
+                          }
+                        : s,
+                    ),
+                  );
+                } else if (evt.token_used !== undefined) {
+                  // done 事件：最终元数据
+                  streamTokenUsed = evt.token_used || 0;
+                  streamTimestamp = evt.timestamp || new Date().toISOString();
+                  streamDepth = evt.tool_call_depth || 0;
+                  streamReasoning = evt.reasoning_content || '';
+                  // 最终更新消息（移除 _streaming 标记）
+                  setSessions((prev) =>
+                    prev.map((s) =>
+                      s.id === sessionId
+                        ? {
+                            ...s,
+                            messages: s.messages.map((m) =>
+                              m.id === assistantMsgId
+                                ? {
+                                    ...m,
+                                    content: streamContent,
+                                    reasoning_content: streamReasoning,
+                                    timestamp: streamTimestamp,
+                                    token_used: streamTokenUsed,
+                                    tool_call_depth: streamDepth,
+                                    _streaming: false,
+                                  }
+                                : m
+                            ),
+                          }
+                        : s,
+                    ),
+                  );
+                } else if (evt.error) {
+                  // 错误事件
+                  streamContent = `[错误] ${evt.error}`;
+                  setSessions((prev) =>
+                    prev.map((s) =>
+                      s.id === sessionId
+                        ? {
+                            ...s,
+                            messages: s.messages.map((m) =>
+                              m.id === assistantMsgId
+                                ? { ...m, content: streamContent, _streaming: false }
+                                : m
+                            ),
+                          }
+                        : s,
+                    ),
+                  );
+                }
+              } catch {
+                // 非 JSON 行，跳过
+              }
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
     } catch (err) {
       const errorMsg: Message = {
         id: generateId(),
@@ -438,19 +704,20 @@ export default function ChatPage() {
 
       const data = await res.json();
 
-      const assistantMsg: Message = {
+      const assistantMsgWithModel: Message = {
         id: generateId(),
         role: 'assistant',
         content: data.content,
         reasoning_content: data.reasoning_content,
         timestamp: data.timestamp,
         token_used: data.token_used,
+        senderModel: currentSession?.model ?? DEFAULT_MODEL,
       };
 
       setSessions((prev) =>
         prev.map((s) =>
           s.id === sessionId
-            ? { ...s, messages: [...s.messages, assistantMsg] }
+            ? { ...s, messages: [...s.messages, assistantMsgWithModel] }
             : s,
         ),
       );

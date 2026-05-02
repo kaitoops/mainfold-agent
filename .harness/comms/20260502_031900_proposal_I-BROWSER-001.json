@@ -1,0 +1,19 @@
+{
+  "message_id": "MSG-20260502-031900-001",
+  "message_type": "contract_proposal",
+  "contract_id": "I-BROWSER-001",
+  "from": "planner",
+  "to": "human",
+  "subject": "I-BROWSER-001 合同提案 — 部署 browser-automation 能力",
+  "body": "在 mainfold-agent 中集成 Browser Automation 工具链，包括 Playwright 支持、网页截图、表单填写、内容提取等能力，并通过 HARNESS 框架注册为可调用的工具端点。",
+  "priority": "normal",
+  "status": "READ",
+  "requires_approval": true,
+  "related_contract": ".harness/contracts/active/I-BROWSER-001.json",
+  "created_at": "2026-05-02T03:19:00Z",
+  "read_at": "2026-05-03T02:25:00Z",
+  "approval_status": "APPROVED",
+  "approved_by": "human",
+  "approved_at": "2026-05-02T03:58:00Z",
+  "notes": "R14 注入载荷 — 验证 FILE_COMM_PROTOCOL 通信机制。合同已从 DRAFT → LOCKED → COMPLETED。"
+}

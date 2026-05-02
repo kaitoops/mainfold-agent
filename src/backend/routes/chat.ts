@@ -80,20 +80,57 @@ const MODEL_ALIASES: Record<string, string> = {
   'deepseek/deepseek-v3.2': 'deepseek-v4-flash',
   'deepseek-v3': 'deepseek-v4-flash',
   'deepseek-v3.2': 'deepseek-v4-flash',
+  // MiMo (小米) 别名
+  'mimo-v2.5': 'mimo-v2.5',
+  'mimo-v2.5-pro': 'mimo-v2.5-pro',
+  'mimo-v2.5-flash': 'mimo-v2.5-flash',
 };
+
+/** 根据模型名选择 API Provider */
+function getProviderConfig(modelName: string, depsApiKey: string, depsMimoApiKey?: string, depsMimoBaseUrl?: string): { baseUrl: string; apiKey: string } {
+  if (modelName.startsWith('mimo-')) {
+    // MiMo 提供商
+    if (!depsMimoApiKey || !depsMimoBaseUrl) {
+      console.warn(`[chat] MiMo model ${modelName} selected but MIMO_API_KEY or MIMO_BASE_URL not configured, falling back to DeepSeek`);
+      return { baseUrl: DEEPSEEK_BASE_URL, apiKey: depsApiKey };
+    }
+    return { baseUrl: depsMimoBaseUrl!, apiKey: depsMimoApiKey! };
+  }
+  // 默认：DeepSeek 提供商
+  return { baseUrl: DEEPSEEK_BASE_URL, apiKey: depsApiKey };
+}
 
 function normalizeModelName(modelId: string): string {
   return MODEL_ALIASES[modelId] ?? modelId;
 }
 
+// ── 多模态内容类型 ──
+
+/** OpenAI 兼容的多模态内容片段 */
+const ContentPartSchema: z.ZodType<Record<string, unknown>> = z.union([
+  z.object({
+    type: z.literal('text'),
+    text: z.string(),
+  }),
+  z.object({
+    type: z.literal('image_url'),
+    image_url: z.object({
+      url: z.string(),
+      detail: z.enum(['auto', 'low', 'high']).optional(),
+    }),
+  }),
+]) as unknown as z.ZodType<Record<string, unknown>>;
+
+type ContentPart = Record<string, unknown>;
+
 // ── 请求/响应模型 ──
 
 const ChatRequestSchema = z.object({
-  message: z.string().min(1),
+  message: z.union([z.string().min(1), z.array(ContentPartSchema)]),
   model: z.string().default('deepseek-v4-flash'),
   conversation_history: z.array(z.object({
     role: z.enum(['user', 'assistant']).default('user'),
-    content: z.string(),
+    content: z.union([z.string(), z.array(z.record(z.unknown()))]).default(''),
   })).default([]),
   session_id: z.string().optional(),
   /** Function calling: DeepSeek 工具定义 */
@@ -107,11 +144,13 @@ const ChatRequestSchema = z.object({
   })).optional(),
   /** Function calling: tool_choice 策略 */
   tool_choice: z.union([z.literal('auto'), z.literal('none'), z.literal('required')]).optional(),
+  /** 流式输出：true = SSE 逐 token 推送，false = 等待完整响应 */
+  stream: z.boolean().default(false),
 });
 
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string | null;
+  content: string | ContentPart[] | null;
   tool_call_id?: string;
   /** Function calling: assistant message 中的 tool_calls（回传 DeepSeek 时需要） */
   tool_calls?: ToolCall[];
@@ -128,7 +167,7 @@ interface ToolCall {
 
 interface DeepSeekApiMessage {
   role: string;
-  content: string | null;
+  content: string | ContentPart[] | null;
   tool_calls?: ToolCall[];
   reasoning_content?: string;
 }
@@ -380,6 +419,9 @@ export function createChatRouter(deps: {
   triState: TriStateOrchestrator;
   healthMonitor: HealthMonitor;
   apiKey: string;
+  /** MiMo (小米) — 可选 API 提供商配置 */
+  mimoApiKey?: string;
+  mimoBaseUrl?: string;
   /** SICR 种子引力场：用用户消息语义匹配休眠种子，返回筛选后的上下文文本 */
   getSeedContext?: (userMessage: string) => Promise<string>;
   /** 收到 [心流] 前缀消息时调用的入库回调 */
@@ -388,7 +430,7 @@ export function createChatRouter(deps: {
   coldMemory?: ColdMemory;
 }): Router {
   const router = Router();
-  const { systemPrompt, triState, healthMonitor, apiKey, getSeedContext } = deps;
+  const { systemPrompt, triState, healthMonitor, apiKey, mimoApiKey, mimoBaseUrl, getSeedContext } = deps;
 
   // ── POST /api/chat ──
 
@@ -400,19 +442,22 @@ export function createChatRouter(deps: {
         res.status(400).json({ error: 'Invalid request', details: parsed.error.issues });
         return;
       }
-      const { message, model, conversation_history, session_id } = parsed.data;
+      const { message, model, conversation_history, session_id, stream: requestStream } = parsed.data;
 
       // 2. 心流种子自动入库
-      // 如果消息以 [心流] 开头，自动入库到 KnowledgeGraph
+      // 如果消息以 [心流] 开头且为纯文本，自动入库到 KnowledgeGraph
       const flowPrefix = '[心流]';
-      const rawMessage = message;
-      let cleanedMessage = rawMessage;
-      if (rawMessage.startsWith(flowPrefix) && deps.seedFlowCb) {
-        const flowContent = rawMessage.slice(flowPrefix.length).trim();
-        if (flowContent) {
-          deps.seedFlowCb(flowContent);
-          console.log(`[chat] Auto-seeded: ${flowContent.slice(0, 50)}...`);
-          cleanedMessage = `[心流] ${flowContent}`;
+      let cleanedMessage = message;
+      // 只有纯文本消息才检查心流前缀
+      if (typeof message === 'string') {
+        const rawMessage = message;
+        if (rawMessage.startsWith(flowPrefix) && deps.seedFlowCb) {
+          const flowContent = rawMessage.slice(flowPrefix.length).trim();
+          if (flowContent) {
+            deps.seedFlowCb(flowContent);
+            console.log(`[chat] Auto-seeded: ${flowContent.slice(0, 50)}...`);
+            cleanedMessage = `[心流] ${flowContent}`;
+          }
         }
       }
 
@@ -436,18 +481,20 @@ export function createChatRouter(deps: {
       };
       const historyMsgs: ChatMessage[] = conversation_history.map(m => ({
         role: m.role as 'user' | 'assistant',
-        content: m.content,
+        content: m.content as string | ContentPart[],
       }));
-      const userMsg: ChatMessage = { role: 'user', content: cleanedMessage };
+      const userMsg: ChatMessage = { role: 'user', content: cleanedMessage as string | ContentPart[] };
 
       const allMessages: ChatMessage[] = [systemMsg, ...historyMsgs, userMsg];
 
       // 4. 标准化模型名
       const normalizedModel = normalizeModelName(model);
 
-      // 5. 检查 API Key
-      if (!apiKey) {
-        res.status(500).json({ error: 'DEEPSEEK_API_KEY not configured' });
+      // 5. 检查 API Key（根据模型动态选择）
+      const provider = getProviderConfig(normalizedModel, apiKey, mimoApiKey, mimoBaseUrl);
+      if (!provider.apiKey) {
+        const providerName = normalizedModel.startsWith('mimo-') ? 'MIMO_API_KEY' : 'DEEPSEEK_API_KEY';
+        res.status(500).json({ error: `${providerName} not configured` });
         return;
       }
 
@@ -502,7 +549,7 @@ export function createChatRouter(deps: {
         type: 'function' as const,
         function: {
           name: 'exec',
-          description: '在沙箱工作目录中执行 shell 命令。命令本身不受沙箱限制（可在命令中 cd 到任何位置），但默认 cwd 设置在沙箱内。可通过 cd 访问 HARNESS 等外部路径。',
+          description: '在沙箱工作目录中执行 shell 命令。仅用于 HARNESS 工具无法覆盖的特殊场景。文件搜索请用 self_scan(action="search", keyword="xxx")，查看工具列表请用 tool_health_check。不要用 exec dir/ls/find 搜索文件。',
           parameters: {
             type: 'object',
             properties: {
@@ -634,6 +681,125 @@ export function createChatRouter(deps: {
       // 标记对话开始（前端轮询 agent 状态的起始时间点）
       beginDialogue();
 
+      // ── SSE 流式输出辅助 ──
+      // 当 requestStream=true 时，设置 SSE 响应头，后续通过 res.write() 逐 token 推送
+      const isStreaming = requestStream === true;
+      let sseInitialized = false;
+
+      function initSSE() {
+        if (sseInitialized) return;
+        sseInitialized = true;
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('X-Accel-Buffering', 'no');
+        res.flushHeaders();
+      }
+
+      function sendSSE(event: string, data: Record<string, unknown>) {
+        if (!isStreaming) return;
+        initSSE();
+        res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      }
+
+      /**
+       * 解析 DeepSeek SSE 流，收集完整响应
+       * 返回 { content, reasoning_content, tool_calls, finish_reason, usage }
+       */
+      async function consumeSSEStream(
+        apiResponse: Response,
+      ): Promise<{ content: string; reasoning: string; tool_calls: ToolCall[] | null; finish_reason: string; usage: { total_tokens: number } | null }> {
+        const reader = apiResponse.body!.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let content = '';
+        let reasoning = '';
+        let finish_reason = '';
+        let usage: { total_tokens: number } | null = null;
+        // tool_calls 需要从多个 chunk 中拼接
+        const toolCallsMap: Record<number, { id: string; name: string; arguments: string }> = {};
+
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+
+            // 按行解析 SSE
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || ''; // 保留不完整的行
+
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                const jsonStr = line.slice(6).trim();
+                if (jsonStr === '[DONE]') continue;
+                try {
+                  const chunk = JSON.parse(jsonStr) as DeepSeekApiResponse;
+                  const delta = chunk.choices[0];
+                  if (!delta) continue;
+
+                  finish_reason = delta.finish_reason || finish_reason;
+
+                  // usage 可能在最后一个 chunk
+                  if (chunk.usage) usage = chunk.usage;
+
+                  const deltaMsg = delta.message ?? (delta as Record<string, unknown>);
+                  if (!deltaMsg) continue;
+
+                  // 文本内容
+                  const deltaContent = (deltaMsg as Record<string, unknown>).content;
+                  if (typeof deltaContent === 'string' && deltaContent) {
+                    content += deltaContent;
+                    // 逐 token 推送给前端
+                    sendSSE('token', { content: deltaContent, accumulated: content });
+                  }
+
+                  // reasoning_content（thinking mode）
+                  const deltaReasoning = (deltaMsg as Record<string, unknown>).reasoning_content;
+                  if (typeof deltaReasoning === 'string' && deltaReasoning) {
+                    reasoning += deltaReasoning;
+                    sendSSE('reasoning', { content: deltaReasoning });
+                  }
+
+                  // tool_calls（从 delta 中拼接）
+                  const deltaToolCalls = (deltaMsg as Record<string, unknown>).tool_calls as Array<{
+                    index: number;
+                    id?: string;
+                    function?: { name?: string; arguments?: string };
+                  }> | undefined;
+                  if (deltaToolCalls && Array.isArray(deltaToolCalls)) {
+                    for (const dtc of deltaToolCalls) {
+                      const idx = dtc.index;
+                      if (!toolCallsMap[idx]) {
+                        toolCallsMap[idx] = { id: '', name: '', arguments: '' };
+                      }
+                      if (dtc.id) toolCallsMap[idx].id = dtc.id;
+                      if (dtc.function?.name) toolCallsMap[idx].name += dtc.function.name;
+                      if (dtc.function?.arguments) toolCallsMap[idx].arguments += dtc.function.arguments;
+                    }
+                  }
+                } catch {
+                  // 非 JSON 行，跳过
+                }
+              }
+            }
+          }
+        } finally {
+          reader.releaseLock();
+        }
+
+        // 组装 tool_calls
+        const toolCalls = Object.keys(toolCallsMap).length > 0
+          ? Object.values(toolCallsMap).map(tc => ({
+              id: tc.id,
+              type: 'function' as const,
+              function: { name: tc.name, arguments: tc.arguments },
+            }))
+          : null;
+
+        return { content, reasoning, tool_calls, finish_reason, usage };
+      }
+
       while (toolCallDepth < MAX_TOOL_CALL_DEPTH) {
         toolCallDepth++;
 
@@ -641,13 +807,14 @@ export function createChatRouter(deps: {
         const apiRequestBody: Record<string, unknown> = {
           model: normalizedModel,
           messages: workingMessages,
-          stream: false,
+          stream: isStreaming,
           max_tokens: 131072,
         };
-        // 第一轮才携带 tools（后续轮次是 tool 结果回传，不需要再传 tools）
-        if (toolCallDepth === 1 && requestTools && requestTools.length > 0) {
+        // 每轮都携带 tools 定义（DeepSeek V4 要求每轮都传 tools，否则模型看不到可用工具）
+        // tool_choice 只在第一轮发送（强制模型调用工具）
+        if (requestTools && requestTools.length > 0) {
           apiRequestBody.tools = requestTools as Record<string, unknown>[];
-          if (requestToolChoice) {
+          if (toolCallDepth === 1 && requestToolChoice) {
             apiRequestBody.tool_choice = requestToolChoice;
           }
           // thinking mode 兼容：通过保留原始 response message 的 reasoning_content 字段
@@ -661,10 +828,10 @@ export function createChatRouter(deps: {
             : '调用 AI 分析问题...',
         });
 
-        const apiResponse = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
+        const apiResponse = await fetch(`${provider.baseUrl}/chat/completions`, {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${apiKey}`,
+            'Authorization': `Bearer ${provider.apiKey}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(apiRequestBody),
@@ -672,58 +839,98 @@ export function createChatRouter(deps: {
 
         if (!apiResponse.ok) {
           const errorText = await apiResponse.text();
-          console.error(`[chat] DeepSeek API error: ${apiResponse.status} ${errorText}`);
-          res.status(apiResponse.status).json({ error: `API error: ${errorText}` });
+          const providerName = normalizedModel.startsWith('mimo-') ? 'MiMo' : 'DeepSeek';
+          console.error(`[chat] ${providerName} API error: ${apiResponse.status} ${errorText}`);
+          if (isStreaming) {
+            sendSSE('error', { error: `${providerName} API error: ${errorText}` });
+            res.end();
+          } else {
+            res.status(apiResponse.status).json({ error: `${providerName} API error: ${errorText}` });
+          }
           return;
         }
 
-        const data = (await apiResponse.json()) as DeepSeekApiResponse;
-        const choice = data.choices[0]?.message;
-        reason = data.choices[0]?.finish_reason || '';
+        let choice: DeepSeekApiMessage | undefined;
+        let data: DeepSeekApiResponse | undefined;
 
-        totalTokens += data.usage?.total_tokens || 0;
+        if (isStreaming) {
+          // 流式模式：逐 token 解析 SSE
+          const sseResult = await consumeSSEStream(apiResponse);
+          totalTokens += sseResult.usage?.total_tokens || 0;
+          reason = sseResult.finish_reason;
 
-        // 检查是否有 tool_calls
-        // BUGFIX 2026-05-01: DeepSeek V4-Flash 的 finish_reason 可能不是 'tool_calls'
-        // 只要 choice 携带了 tool_calls 就应该进入循环消费，不依赖 finish_reason 的字符串值
-        if (choice?.tool_calls && choice.tool_calls.length > 0) {
-          // 使用原始 response message 对象（包含 reasoning_content 等所有字段）
-          // DeepSeek thinking mode 要求 assistant message 必须携带 reasoning_content 回传
-          // 如果用 ChatMessage 类型会丢失该字段，导致 API 拒绝
-          const assistantRaw = choice as unknown as Record<string, unknown>;
-          workingMessages.push(assistantRaw);
-
-          // 执行每个 tool call
-          for (const tc of choice.tool_calls) {
-            console.log(`[chat] Tool call #${toolCallDepth}: ${tc.function.name}(${tc.function.arguments})`);
-
-            // 执行工具
-            const toolResult = await executeToolCall(tc);
-
-            // 添加 tool 结果消息（DeepSeek API 需要 tool_call_id 来关联）
-            workingMessages.push({
-              role: 'tool',
-              content: toolResult,
-              tool_call_id: tc.id,
+          // 检查是否有 tool_calls
+          if (sseResult.tool_calls && sseResult.tool_calls.length > 0) {
+            sendSSE('tool_calls', {
+              tool_calls: sseResult.tool_calls.map(tc => ({
+                name: tc.function.name,
+                arguments: tc.function.arguments,
+              })),
             });
+
+            // 构造兼容的 choice 对象
+            const assistantMsg = {
+              content: sseResult.content || null,
+              tool_calls: sseResult.tool_calls,
+              reasoning_content: sseResult.reasoning || undefined,
+            };
+            workingMessages.push(assistantMsg as unknown as Record<string, unknown>);
+
+            // 执行每个 tool call
+            for (const tc of sseResult.tool_calls) {
+              console.log(`[chat] Tool call #${toolCallDepth}: ${tc.function.name}(${tc.function.arguments})`);
+              sendSSE('tool_start', { name: tc.function.name, arguments: tc.function.arguments });
+
+              const toolResult = await executeToolCall(tc);
+
+              sendSSE('tool_result', { name: tc.function.name, result: toolResult.slice(0, 500) });
+              workingMessages.push({
+                role: 'tool',
+                content: toolResult,
+                tool_call_id: tc.id,
+              });
+            }
+
+            setAgentStatus({ phase: 'tool-result', detail: '等待 AI 处理工具结果...' });
+            continue;
           }
 
-          setAgentStatus({
-            phase: 'tool-result',
-            detail: '等待 AI 处理工具结果...',
-          });
+          // 普通内容响应（流式）
+          finalContent = sseResult.content;
+          finalReasoning = sseResult.reasoning || null;
+        } else {
+          // 非流式模式：等待完整 JSON 响应
+          data = (await apiResponse.json()) as DeepSeekApiResponse;
+          choice = data.choices[0]?.message;
+          reason = data.choices[0]?.finish_reason || '';
+          totalTokens += data.usage?.total_tokens || 0;
 
-          // 继续循环（让 DeepSeek 处理 tool 结果）
-          continue;
+          // 检查是否有 tool_calls
+          if (choice?.tool_calls && choice.tool_calls.length > 0) {
+            const assistantRaw = choice as unknown as Record<string, unknown>;
+            workingMessages.push(assistantRaw);
+
+            for (const tc of choice.tool_calls) {
+              console.log(`[chat] Tool call #${toolCallDepth}: ${tc.function.name}(${tc.function.arguments})`);
+              const toolResult = await executeToolCall(tc);
+              workingMessages.push({
+                role: 'tool',
+                content: toolResult,
+                tool_call_id: tc.id,
+              });
+            }
+
+            setAgentStatus({ phase: 'tool-result', detail: '等待 AI 处理工具结果...' });
+            continue;
+          }
+
+          finalContent = choice?.content || '';
+          finalReasoning = choice?.reasoning_content || null;
         }
 
-        // 普通内容响应
-        finalContent = choice?.content || '';
-        finalReasoning = choice?.reasoning_content || null;
-
         // Phase 1: 输出重构（仅对非 function-calling 的最终回复生效）
-        // BUGFIX 2026-05-01: 当 toolCallDepth > 1 时跳过重构，避免重构器吞掉长回复
-        if (finalContent && finalContent.length > 10 && toolCallDepth > 0 && toolCallDepth <= 1) {
+        // 流式模式下跳过重构（内容已逐 token 推送，无法回溯修改）
+        if (!isStreaming && finalContent && finalContent.length > 10 && toolCallDepth > 0 && toolCallDepth <= 1) {
           setAgentStatus({ phase: 'refactor', detail: '优化回复格式...' });
           const refactored = await refactorOutput(finalContent, finalReasoning, apiKey, DEEPSEEK_BASE_URL);
           finalContent = refactored.content;
@@ -767,23 +974,46 @@ export function createChatRouter(deps: {
       }
 
       // 8. 返回
-      res.json({
-        content: finalContent,
-        token_used: totalTokens,
-        finish_reason: reason,                     // ← BUGFIX 2026-05-01: 暴露原始 finish_reason 供诊断
-        working_messages_len: workingMessages.length, // ← BUGFIX 2026-05-01: 暴露上下文长度供诊断
-        timestamp: new Date().toISOString(),
-        reasoning_content: finalReasoning,
-        tool_calls_used: toolCallDepth > 1,
-        tool_call_depth: toolCallDepth,
-        tri_state: {
-          A: triSnapshot.A,
-          S: triSnapshot.S,
-          H: triSnapshot.H,
-          triScore: triSnapshot.triScore,
-          state: triSnapshot.state,
-        },
-      });
+      if (isStreaming) {
+        // 流式模式：发送 done 事件（包含完整元数据），然后关闭连接
+        sendSSE('done', {
+          content: finalContent,
+          token_used: totalTokens,
+          finish_reason: reason,
+          working_messages_len: workingMessages.length,
+          timestamp: new Date().toISOString(),
+          reasoning_content: finalReasoning,
+          tool_calls_used: toolCallDepth > 1,
+          tool_call_depth: toolCallDepth,
+          tri_state: {
+            A: triSnapshot.A,
+            S: triSnapshot.S,
+            H: triSnapshot.H,
+            triScore: triSnapshot.triScore,
+            state: triSnapshot.state,
+          },
+        });
+        res.end();
+      } else {
+        // 非流式模式：返回完整 JSON
+        res.json({
+          content: finalContent,
+          token_used: totalTokens,
+          finish_reason: reason,
+          working_messages_len: workingMessages.length,
+          timestamp: new Date().toISOString(),
+          reasoning_content: finalReasoning,
+          tool_calls_used: toolCallDepth > 1,
+          tool_call_depth: toolCallDepth,
+          tri_state: {
+            A: triSnapshot.A,
+            S: triSnapshot.S,
+            H: triSnapshot.H,
+            triScore: triSnapshot.triScore,
+            state: triSnapshot.state,
+          },
+        });
+      }
 
       // 重置 agent 状态（前端已收到响应，停止轮询）
       resetAgentStatus();
@@ -796,7 +1026,12 @@ export function createChatRouter(deps: {
       triState.signal('error');
       triState.onChatComplete(false);
 
-      res.status(500).json({ error: error.message });
+      if (sseInitialized) {
+        sendSSE('error', { error: error.message });
+        res.end();
+      } else {
+        res.status(500).json({ error: error.message });
+      }
       resetAgentStatus();
     }
   });
@@ -805,6 +1040,7 @@ export function createChatRouter(deps: {
   // 运行逻辑等同旧 /api/models：返回可用模型列表
 
   router.get('/api/models', (_req: Request, res: Response) => {
+    const mimoConfigured = !!deps.mimoApiKey;
     res.json({
       providers: {
         deepseek: {
@@ -814,6 +1050,17 @@ export function createChatRouter(deps: {
             { id: 'deepseek-reasoner', name: 'DeepSeek R1', description: '128K上下文 · 深度推理', context: '128K' },
           ],
         },
+        ...(mimoConfigured
+          ? {
+              mimo: {
+                models: [
+                  { id: 'mimo-v2.5', name: 'MiMo V2.5', description: '多模态 · 文本/图像/视频/音频', context: '128K' },
+                  { id: 'mimo-v2.5-pro', name: 'MiMo V2.5 Pro', description: '增强推理 · 多模态', context: '128K' },
+                  { id: 'mimo-v2.5-flash', name: 'MiMo V2.5 Flash', description: '快速响应 · 多模态', context: '128K' },
+                ],
+              },
+            }
+          : {}),
       },
     });
   });

@@ -396,8 +396,12 @@ export function getSelfScanToolDefinition() {
         properties: {
           action: {
             type: 'string',
-            enum: ['scan', 'files', 'file_detail', 'read-file', 'deps', 'stats', 'query', 'list-actions'],
-            description: '要执行的自省操作：scan=完整扫描, files=文件列表, file_detail或read-file=单个文件详情, deps=依赖图, stats=统计, query=自然语言查询, list-actions=列出所有可用操作',
+            enum: ['scan', 'files', 'file_detail', 'read-file', 'deps', 'stats', 'query', 'search', 'list-actions'],
+            description: '要执行的自省操作：scan=完整扫描, files=文件列表, file_detail或read-file=单个文件详情, deps=依赖图, stats=统计, query=自然语言查询, search=按关键词搜索文件（文件名/导出符号/用途）, list-actions=列出所有可用操作',
+          },
+          keyword: {
+            type: 'string',
+            description: 'search 操作时需要：搜索关键词，匹配文件名、导出符号、模块用途。例如 "browser" 会找到所有浏览器相关文件。',
           },
           filePath: {
             type: 'string',
@@ -546,6 +550,41 @@ export async function executeSelfScan(args: {
       }
     }
 
+    case 'search': {
+      const keyword = (args.keyword || '').toLowerCase().trim();
+      if (!keyword) {
+        return JSON.stringify({ error: 'keyword 参数是必需的' });
+      }
+      const scan = scanBackend();
+      const results = scan.files.filter(f => {
+        const searchText = [
+          f.relativePath,
+          f.moduleType,
+          f.purpose,
+          ...f.exports,
+          ...f.imports,
+        ].join(' ').toLowerCase();
+        return searchText.includes(keyword);
+      }).map(f => ({
+        path: f.relativePath,
+        type: f.moduleType,
+        lines: f.lineCount,
+        exports: f.exports,
+        purpose: f.purpose,
+        matchFields: [
+          f.relativePath.toLowerCase().includes(keyword) ? 'path' : null,
+          f.purpose.toLowerCase().includes(keyword) ? 'purpose' : null,
+          f.exports.some(e => e.toLowerCase().includes(keyword)) ? 'exports' : null,
+          f.moduleType.toLowerCase().includes(keyword) ? 'moduleType' : null,
+        ].filter(Boolean),
+      }));
+      return JSON.stringify({
+        keyword,
+        matchCount: results.length,
+        results,
+      }, null, 2);
+    }
+
     case 'list-actions':
       return JSON.stringify({
         availableActions: [
@@ -555,6 +594,7 @@ export async function executeSelfScan(args: {
           { action: 'deps', description: '依赖图（节点+边）' },
           { action: 'stats', description: '代码统计数据' },
           { action: 'query', params: { query: '自然语言' }, description: '自然语言查询代码' },
+          { action: 'search', params: { keyword: '关键词' }, description: '按关键词搜索文件（匹配文件名/导出符号/用途/模块类型）' },
           { action: 'list-actions', description: '列出此信息' },
         ],
       }, null, 2);

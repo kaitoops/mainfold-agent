@@ -7,6 +7,7 @@
  *   - 对接 /api/models（已有）+ /api/models/active（已补）
  *   - 暗色主题统一
  *   - 测试连接逻辑保留：临时切换模型→发测试请求→切回
+ *   - 2026-05-03: 新增 MiMo (小米) 可选 Provider
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -31,11 +32,22 @@ interface ModelInfo {
   context?: string;
 }
 
+interface ProviderConfig {
+  models: ModelInfo[];
+}
+
 interface ModelsConfig {
   providers: {
-    deepseek: {
-      models: ModelInfo[];
-    };
+    deepseek: ProviderConfig;
+    mimo?: ProviderConfig;
+  };
+}
+
+interface HealthResponse {
+  services: {
+    backend: string;
+    deepseek_api: string;
+    mimo_api?: string;
   };
 }
 
@@ -49,7 +61,10 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle');
-  const [apiKeyStatus, setApiKeyStatus] = useState<'unknown' | 'configured' | 'missing'>('unknown');
+  const [apiKeyStatus, setApiKeyStatus] = useState<{ deepseek: 'unknown' | 'configured' | 'missing'; mimo: 'unknown' | 'configured' | 'missing' }>({
+    deepseek: 'unknown',
+    mimo: 'unknown',
+  });
 
   // ── 加载模型配置 + 活跃模型 ──
 
@@ -64,14 +79,15 @@ export default function SettingsPage() {
       })
       .catch(() => {});
 
-    // 检查 API Key 状态
+    // 检查 API Key 状态（双 Provider）
     fetch('/api/health')
       .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data?.services?.deepseek_api === 'configured') {
-          setApiKeyStatus('configured');
-        } else {
-          setApiKeyStatus('missing');
+      .then((data: HealthResponse | null) => {
+        if (data?.services) {
+          setApiKeyStatus({
+            deepseek: data.services.deepseek_api === 'configured' ? 'configured' : 'missing',
+            mimo: data.services.mimo_api === 'configured' ? 'configured' : 'missing',
+          });
         }
       })
       .catch(() => {});
@@ -123,7 +139,16 @@ export default function SettingsPage() {
     return null;
   };
 
-  const models = config?.providers?.deepseek?.models || [];
+  const apiStatusBadge = (status: 'unknown' | 'configured' | 'missing') => {
+    if (status === 'configured') return <span className="text-green-400">已配置</span>;
+    if (status === 'missing') return <span className="text-red-400">未配置</span>;
+    return <span className="text-gray-500">检测中...</span>;
+  };
+
+  const deepseekModels = config?.providers?.deepseek?.models || [];
+  const mimoModels = config?.providers?.mimo?.models || [];
+  const hasMimo = mimoModels.length > 0;
+  const allModels = [...deepseekModels, ...mimoModels];
 
   return (
     <div className="flex flex-col h-full">
@@ -148,27 +173,76 @@ export default function SettingsPage() {
               <Globe className="w-5 h-5 text-gray-400" />
               <h3 className="font-medium text-gray-100">模型选择</h3>
             </div>
-            <div className="p-4">
-              <div className="text-sm text-gray-400 mb-3">DeepSeek（当前唯一 Provider）</div>
-              <div className="grid grid-cols-2 gap-3">
-                {models.map((m) => (
-                  <button
-                    key={m.id}
-                    onClick={() => setActiveModel(m.id)}
-                    className={`text-left p-4 rounded-lg border transition-colors ${
-                      activeModel === m.id
-                        ? 'border-primary-500 bg-primary-900/20'
-                        : 'border-gray-700 hover:border-gray-600 bg-gray-800/50'
-                    }`}
-                  >
-                    <div className="font-medium text-gray-100 text-sm">{m.name}</div>
-                    <div className="text-xs text-gray-500 mt-1">{m.description || '—'}</div>
-                    {m.context && (
-                      <div className="text-xs text-gray-600 mt-1">上下文: {m.context}</div>
-                    )}
-                  </button>
-                ))}
+            <div className="p-4 space-y-6">
+              {/* DeepSeek Provider */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-2 h-2 rounded-full bg-blue-500" />
+                  <span className="text-sm font-medium text-gray-300">DeepSeek</span>
+                  {apiStatusBadge(apiKeyStatus.deepseek)}
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  {deepseekModels.map((m) => (
+                    <button
+                      key={m.id}
+                      onClick={() => setActiveModel(m.id)}
+                      className={`text-left p-4 rounded-lg border transition-colors ${
+                        activeModel === m.id
+                          ? 'border-primary-500 bg-primary-900/20'
+                          : 'border-gray-700 hover:border-gray-600 bg-gray-800/50'
+                      }`}
+                    >
+                      <div className="font-medium text-gray-100 text-sm">{m.name}</div>
+                      <div className="text-xs text-gray-500 mt-1">{m.description || '—'}</div>
+                      {m.context && (
+                        <div className="text-xs text-gray-600 mt-1">上下文: {m.context}</div>
+                      )}
+                    </button>
+                  ))}
+                </div>
               </div>
+
+              {/* MiMo Provider（可选） */}
+              {hasMimo && (
+                <div className="border-t border-gray-700 pt-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-2 h-2 rounded-full bg-orange-500" />
+                    <span className="text-sm font-medium text-gray-300">MiMo (小米)</span>
+                    <span className="text-xs text-gray-600">可选 Provider</span>
+                    {apiStatusBadge(apiKeyStatus.mimo)}
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    {mimoModels.map((m) => (
+                      <button
+                        key={m.id}
+                        onClick={() => setActiveModel(m.id)}
+                        className={`text-left p-4 rounded-lg border transition-colors ${
+                          activeModel === m.id
+                            ? 'border-primary-500 bg-primary-900/20'
+                            : 'border-gray-700 hover:border-gray-600 bg-gray-800/50'
+                        }`}
+                      >
+                        <div className="font-medium text-gray-100 text-sm">{m.name}</div>
+                        <div className="text-xs text-gray-500 mt-1">{m.description || '—'}</div>
+                        {m.context && (
+                          <div className="text-xs text-gray-600 mt-1">上下文: {m.context}</div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {!hasMimo && (
+                <div className="border-t border-gray-700 pt-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-2 h-2 rounded-full bg-gray-600" />
+                    <span className="text-sm font-medium text-gray-500">MiMo (小米)</span>
+                    <span className="text-xs text-gray-600">—</span>
+                  </div>
+                  <p className="text-xs text-gray-600">未配置 MIMO_API_KEY，需在 .env 中设置以启用 MiMo 模型</p>
+                </div>
+              )}
             </div>
           </div>
 
@@ -177,37 +251,23 @@ export default function SettingsPage() {
             <div className="p-4 border-b border-gray-700 flex items-center gap-2">
               <Database className="w-5 h-5 text-gray-400" />
               <h3 className="font-medium text-gray-100">API Key 配置</h3>
-              <span className="text-xs text-gray-600 ml-auto">环境变量: DEEPSEEK_API_KEY</span>
+              <span className="text-xs text-gray-600 ml-auto">环境变量: .env</span>
             </div>
-            <div className="p-4">
+            <div className="p-4 space-y-4">
+              {/* DeepSeek */}
               <div className="border border-gray-700 rounded-lg p-4 bg-gray-800/50">
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <div className="font-medium text-gray-200 text-sm">DeepSeek</div>
                     <div className="text-xs text-gray-500 mt-1">
-                      状态:{' '}
-                      <span
-                        className={
-                          apiKeyStatus === 'configured'
-                            ? 'text-green-400'
-                            : apiKeyStatus === 'missing'
-                              ? 'text-red-400'
-                              : 'text-gray-500'
-                        }
-                      >
-                        {apiKeyStatus === 'configured'
-                          ? '已配置'
-                          : apiKeyStatus === 'missing'
-                            ? '未配置'
-                            : '检测中...'}
-                      </span>
+                      状态: {apiStatusBadge(apiKeyStatus.deepseek)}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     {statusIcon(testStatus)}
                     <button
                       onClick={testConnection}
-                      disabled={testStatus === 'testing' || apiKeyStatus === 'missing'}
+                      disabled={testStatus === 'testing' || apiKeyStatus.deepseek === 'missing'}
                       className="text-xs px-3 py-1.5 border border-gray-600 rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50 text-gray-300"
                     >
                       测试连接
@@ -219,7 +279,7 @@ export default function SettingsPage() {
                     type={showApiKey ? 'text' : 'password'}
                     value={apiKeyValue}
                     onChange={(e) => setApiKeyValue(e.target.value)}
-                    placeholder="输入 DEEPSEEK_API_KEY（不修改请留空）"
+                    placeholder="DEEPSEEK_API_KEY（不修改请留空）"
                     className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-sm text-gray-200 font-mono focus:outline-none focus:border-primary-500 placeholder-gray-600"
                   />
                   <button
@@ -233,9 +293,25 @@ export default function SettingsPage() {
                     )}
                   </button>
                 </div>
-                {apiKeyValue && (
+              </div>
+
+              {/* MiMo */}
+              <div className={`border rounded-lg p-4 bg-gray-800/50 ${hasMimo ? 'border-orange-700' : 'border-gray-700'}`}>
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <div className="font-medium text-gray-200 text-sm">MiMo (小米) {!hasMimo && <span className="text-xs text-gray-500">— 可选</span>}</div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      状态: {apiStatusBadge(apiKeyStatus.mimo)}
+                    </div>
+                  </div>
+                  <span className="text-xs text-gray-600">环境变量: MIMO_API_KEY</span>
+                </div>
+                <div className="text-xs text-gray-500">
+                  端点: <code className="text-gray-400">https://api.xiaomimimo.com/v1</code>
+                </div>
+                {!hasMimo && (
                   <div className="text-xs text-yellow-500 mt-2">
-                    注意：修改 .env 文件后需重启后端生效
+                    提示: 在 .env 中设置 MIMO_API_KEY 以启用 MiMo 模型
                   </div>
                 )}
               </div>
