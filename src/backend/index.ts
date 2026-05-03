@@ -90,8 +90,14 @@ import { createSicrRouter } from './routes/sicr-router.js';
 // ── ESA: 具身自注意力认知架构 ──
 import { ESACore, integrateTRIWithESA } from './esa-core.js';
 
+// ── 会话持久化 ──
+import { createSessionsRouter } from './routes/sessions.js';
+
 // ── M6: 自代码自省模块 ──
 import { createSelfScanRouter } from './routes/self-scan.js';
+
+// ── 任务状态追踪 ──
+import { createTaskTrackerRouter } from './routes/task-tracker.js';
 
 // ── EB-006 上下文守卫 ──
 
@@ -197,18 +203,33 @@ const app = express();
 app.use(cors({ origin: '*', credentials: true }));
 app.use(express.json());
 
+// ── 版本常量 ──
+const APP_VERSION = '1.0.0-mainfold';
+const BUILD_TIME = new Date().toISOString();
+
 // ── 基础端点 ──
 
 app.get('/', (_req: Request, res: Response) => {
   res.json({
     status: 'ok',
     service: 'mainfold-agent',
-    version: '1.0.0-mainfold',
+    version: APP_VERSION,
+    buildTime: BUILD_TIME,
     identity: {
       loaded: true,
       preview: identityResult.identityPreview,
       source: soulResult.path,
     },
+  });
+});
+
+// ── 版本端点（前端检测版本一致性用）──
+app.get('/api/version', (_req: Request, res: Response) => {
+  res.json({
+    version: APP_VERSION,
+    buildTime: BUILD_TIME,
+    nodeVersion: process.version,
+    uptime: process.uptime(),
   });
 });
 
@@ -339,6 +360,7 @@ const chatRouter = createChatRouter({
   apiKey: DEEPSEEK_API_KEY,
   mimoApiKey: MIMO_API_KEY,
   mimoBaseUrl: MIMO_BASE_URL,
+  tavilyApiKey: TAVILY_API_KEY,
   coldMemory, // Phase E: 冷记忆日志
   getSeedContext: async (userMessage: string) => {
     const kg = getSharedKg();
@@ -455,6 +477,16 @@ app.use(seedsRouter);
 const selfScanRouter = createSelfScanRouter();
 app.use(selfScanRouter);
 
+// ── 会话持久化路由 ──
+
+const sessionsRouter = createSessionsRouter();
+app.use(sessionsRouter);
+
+// ── 任务状态追踪路由 ──
+
+const taskTrackerRouter = createTaskTrackerRouter();
+app.use(taskTrackerRouter);
+
 // ── ESA: 注意力状态查询端点 ──
 
 app.get('/api/esa/status', (_req: Request, res: Response) => {
@@ -481,7 +513,7 @@ app.listen(PORT, '0.0.0.0', () => {
   // Phase E: 启动记忆整理器
   memoryReviewer.start();
 
-  console.log(`[mainfold-agent] Backend started on http://0.0.0.0:${PORT}`);
+  console.log(`[mainfold-agent] Backend started on http://0.0.0.0:${PORT} [HOT-RELOAD-TEST-2: ${new Date().toISOString()}]`);
   console.log(`[mainfold-agent] SOUL.md: ${soulResult.path} (${soulResult.body.length} chars)`);
   console.log(`[mainfold-agent] Identity: ${identityResult.identityPreview.slice(0, 50)}...`);
   console.log(`[mainfold-agent] EB-006: ${eb006 ? 'loaded' : 'not found'}`);

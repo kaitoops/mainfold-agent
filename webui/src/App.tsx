@@ -61,9 +61,22 @@ const NAV_ITEMS: { key: Page; icon: React.ReactNode; label: string }[] = [
   { key: 'settings', icon: <Settings size={20} />, label: 'Settings' },
 ];
 
+// ── 版本信息接口 ──
+interface VersionData {
+  version: string;
+  buildTime: string;
+  nodeVersion: string;
+  uptime: number;
+}
+
+// ── 前端版本（与后端 APP_VERSION 同步）──
+const FRONTEND_VERSION = '1.0.0-mainfold';
+
 export default function App() {
   const [page, setPage] = useState<Page>('chat');
   const [health, setHealth] = useState<HealthData | null>(null);
+  const [versionInfo, setVersionInfo] = useState<VersionData | null>(null);
+  const [versionMismatch, setVersionMismatch] = useState(false);
 
   // 健康轮询（15秒）
   useEffect(() => {
@@ -80,6 +93,25 @@ export default function App() {
     };
     poll();
     const id = setInterval(poll, 15000);
+    return () => clearInterval(id);
+  }, []);
+
+  // 版本检查轮询（30秒）
+  useEffect(() => {
+    const checkVersion = async () => {
+      try {
+        const res = await fetch('/api/version');
+        if (res.ok) {
+          const data = await res.json();
+          setVersionInfo(data);
+          setVersionMismatch(data.version !== FRONTEND_VERSION);
+        }
+      } catch {
+        // 后端未启动，静默
+      }
+    };
+    checkVersion();
+    const id = setInterval(checkVersion, 30000);
     return () => clearInterval(id);
   }, []);
 
@@ -148,6 +180,12 @@ export default function App() {
             Mainfold Agent — 流形导航 × MemPalace
           </h1>
           <div className="flex items-center gap-3 text-xs text-gray-500">
+            {/* 版本不一致警告 */}
+            {versionMismatch && (
+              <span className="px-2 py-1 bg-yellow-900/50 text-yellow-300 rounded border border-yellow-700" title={`前端: ${FRONTEND_VERSION} | 后端: ${versionInfo?.version}`}>
+                ⚠️ 版本不一致 — 请重启后端
+              </span>
+            )}
             {health && (
               <>
                 <span>

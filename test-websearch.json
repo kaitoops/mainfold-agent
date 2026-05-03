@@ -1,0 +1,7 @@
+{
+  "message": "使用 web_search 工具搜索 'DeepSeek V3 API 最新版本'",
+  "model": "deepseek-v3",
+  "stream": false,
+  "conversation_history": [],
+  "session_id": "test-websearch-001"
+}

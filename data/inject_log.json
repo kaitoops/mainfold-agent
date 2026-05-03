@@ -1,0 +1,162 @@
+[
+  {
+    "id": "inject_1777802948933_ywnzpy",
+    "taskId": "task_1777802948935_xdcfc2",
+    "content": "CAVEMAN 集成第2轮：路由集成\n\n在 src/backend/routes/chat.ts 中集成 CAVEMAN 服务：导入 caveman 模块，在 SSE 流式响应中添加可选的 CAVEMAN 压缩层。当用户发送 /caveman 命令时激活压缩模式。保持向后兼容，默认不激活。",
+    "source": "autonomous-injector",
+    "timestamp": "2026-05-03T10:09:08.933Z",
+    "priority": 1,
+    "delivered": true,
+    "deliveredAt": "2026-05-03T10:12:37.649Z"
+  },
+  {
+    "id": "inject_1777803180472_i5xbdk",
+    "taskId": "task_1777803180474_bejnr6",
+    "content": "CAVEMAN 集成第2轮：路由集成\n\n在 src/backend/routes/chat.ts 中集成 CAVEMAN 服务：导入 caveman 模块，在 SSE 流式响应中添加可选的 CAVEMAN 压缩层。当用户发送 /caveman 命令时激活压缩模式。保持向后兼容，默认不激活。",
+    "source": "autonomous-injector",
+    "timestamp": "2026-05-03T10:13:00.472Z",
+    "priority": 1,
+    "delivered": true,
+    "deliveredAt": "2026-05-03T10:13:01.694Z"
+  },
+  {
+    "id": "inject_1777803480471_rrbhkr",
+    "taskId": "task_1777803480472_krulx0",
+    "content": "ChatPage.tsx 组件拆分\n\n将 ChatPage.tsx（1600+行）拆分为独立组件：MessageList.tsx、InputBar.tsx、SessionSidebar.tsx、TaskStatusPanel.tsx。保持所有功能不变，只做结构优化。",
+    "source": "autonomous-injector",
+    "timestamp": "2026-05-03T10:18:00.471Z",
+    "priority": 1,
+    "delivered": true,
+    "deliveredAt": "2026-05-03T10:18:01.684Z"
+  },
+  {
+    "id": "inject_1777804002360_qzcw8d",
+    "taskId": "task_1777804002361_kxfi06",
+    "content": "消息持久化优化\n\n优化消息持久化机制：将 localStorage + 后端 JSON 双写改为单一持久化源。消息存储在后端 data/messages/ 目录，前端通过 API 获取。减少数据不一致风险。",
+    "source": "autonomous-injector",
+    "timestamp": "2026-05-03T10:26:42.360Z",
+    "priority": 1,
+    "delivered": true,
+    "deliveredAt": "2026-05-03T10:26:45.125Z"
+  },
+  {
+    "id": "inject_1777804212360_tjdrkq",
+    "taskId": "task_1777804212361_0wv3vh",
+    "content": "消息持久化优化\n\n优化消息持久化机制：将 localStorage + 后端 JSON 双写改为单一持久化源。消息存储在后端 data/messages/ 目录，前端通过 API 获取。减少数据不一致风险。",
+    "source": "autonomous-injector",
+    "timestamp": "2026-05-03T10:30:12.360Z",
+    "priority": 1,
+    "delivered": false,
+    "deliveredAt": null
+  },
+  {
+    "id": "inject_1777804302279_gbn3hx",
+    "taskId": "task_1777804302280_vgm1ph",
+    "content": "错误处理统一化\n\n统一 mainfold-agent 的错误处理：创建 src/backend/middleware/error-handler.ts，实现标准化错误响应格式 {error: string, code: number, details?: any}。替换所有 try-catch 中的 res.status(500).json()。",
+    "source": "autonomous-injector",
+    "timestamp": "2026-05-03T10:31:42.279Z",
+    "priority": 1,
+    "delivered": false,
+    "deliveredAt": null
+  },
+  {
+    "id": "inject_1777804602281_2n5l1a",
+    "taskId": "task_1777804602282_dh7s62",
+    "content": "API 文档自动生成\n\n为 mainfold-agent 后端 API 自动生成文档：使用 swagger-jsdoc + swagger-ui-express，在 /api/docs 端点提供交互式 API 文档。为所有路由添加 JSDoc 注释。",
+    "source": "autonomous-injector",
+    "timestamp": "2026-05-03T10:36:42.281Z",
+    "priority": 1,
+    "delivered": false,
+    "deliveredAt": null
+  },
+  {
+    "id": "inject_1777804902293_bib2ml",
+    "taskId": "task_1777804902293_xuxx5t",
+    "content": "SSE 连接稳定性增强\n\n增强 SSE 流式连接的稳定性：添加心跳机制（每30秒发送 :ping），添加重连逻辑（前端检测连接断开后自动重连），添加连接超时处理（60秒无数据自动关闭）。",
+    "source": "autonomous-injector",
+    "timestamp": "2026-05-03T10:41:42.293Z",
+    "priority": 1,
+    "delivered": false,
+    "deliveredAt": null
+  },
+  {
+    "id": "inject_1777805202309_3gx3cc",
+    "taskId": "task_1777805202309_m745dq",
+    "content": "记忆系统 API 增强\n\n增强记忆系统 API：添加 /api/memory/search 端点（全文搜索），添加 /api/memory/stats 端点（统计信息），添加 /api/memory/export 端点（导出为 JSON）。完善现有 CRUD 操作的输入验证。",
+    "source": "autonomous-injector",
+    "timestamp": "2026-05-03T10:46:42.309Z",
+    "priority": 1,
+    "delivered": false,
+    "deliveredAt": null
+  },
+  {
+    "id": "inject_1777805502315_v6mpum",
+    "taskId": "task_1777805502316_6p7nvh",
+    "content": "前端性能优化\n\n优化 WebUI 前端性能：实现消息列表虚拟化（react-window），添加 React.memo 优化重渲染，使用 useMemo 缓存计算结果，减少不必要的 API 轮询。",
+    "source": "autonomous-injector",
+    "timestamp": "2026-05-03T10:51:42.315Z",
+    "priority": 1,
+    "delivered": false,
+    "deliveredAt": null
+  },
+  {
+    "id": "inject_1777805802330_4tm9jn",
+    "taskId": "task_1777805802331_nk2f6d",
+    "content": "日志系统建设\n\n建设结构化日志系统：使用 winston 创建 logger 实例，替换所有 console.log/error。日志输出到 data/logs/ 目录，按日期轮转。添加请求日志中间件（morgan 或自定义）。",
+    "source": "autonomous-injector",
+    "timestamp": "2026-05-03T10:56:42.330Z",
+    "priority": 1,
+    "delivered": false,
+    "deliveredAt": null
+  },
+  {
+    "id": "inject_1777806102336_dvawfb",
+    "taskId": "task_1777806102336_canfqz",
+    "content": "配置管理优化\n\n优化配置管理：创建 src/backend/config.ts，集中管理所有配置项（端口、API Key、路径等）。支持环境变量覆盖和 .env 文件。替换所有硬编码配置。",
+    "source": "autonomous-injector",
+    "timestamp": "2026-05-03T11:01:42.336Z",
+    "priority": 1,
+    "delivered": false,
+    "deliveredAt": null
+  },
+  {
+    "id": "inject_1777806402345_ofg7mx",
+    "taskId": "task_1777806402345_esg3ep",
+    "content": "单元测试补充\n\n为核心模块补充单元测试：为 inject.ts、chat.ts、memory.ts 编写测试用例。使用 vitest 框架，目标覆盖率 >70%。重点测试授权逻辑、消息注入、记忆存储。",
+    "source": "autonomous-injector",
+    "timestamp": "2026-05-03T11:06:42.345Z",
+    "priority": 1,
+    "delivered": false,
+    "deliveredAt": null
+  },
+  {
+    "id": "inject_1777806702359_vj1xd9",
+    "taskId": "task_1777806702360_g3noaq",
+    "content": "部署脚本编写\n\n编写一键部署脚本：创建 deploy.js，自动执行 TypeScript 编译、依赖检查、端口检测、进程启动。支持开发模式和生产模式。添加健康检查端点 /api/health。",
+    "source": "autonomous-injector",
+    "timestamp": "2026-05-03T11:11:42.359Z",
+    "priority": 1,
+    "delivered": false,
+    "deliveredAt": null
+  },
+  {
+    "id": "inject_1777807775228_x4toha",
+    "taskId": "task_1777807775229_9bofuc",
+    "content": "平台核心接口定义\n\n在 G:\\mainfold-family-agent\\src\\core\\ 创建模块系统接口定义：\n1. Module 接口（id, name, version, onInit, onDestroy, getTools, getPrompts）\n2. Tool 接口（name, description, execute）\n3. Prompt 接口（name, template, variables）\n4. 创建 module-loader.ts 实现动态模块加载\n保持与原版 mainfold-agent 的向后兼容。",
+    "source": "autonomous-injector",
+    "timestamp": "2026-05-03T11:29:35.228Z",
+    "priority": 1,
+    "delivered": false,
+    "deliveredAt": null
+  },
+  {
+    "id": "inject_1777808075233_r1kszl",
+    "taskId": "task_1777808075234_2eroci",
+    "content": "配置系统重构\n\n重构 G:\\mainfold-family-agent 的配置系统：\n1. 创建 config/platform.ts 统一配置管理\n2. 支持模块级配置（每个模块独立配置）\n3. 支持主题切换配置\n4. 创建 config/family.json 家族传承专用配置\n5. 保持原版配置的兼容性",
+    "source": "autonomous-injector",
+    "timestamp": "2026-05-03T11:34:35.233Z",
+    "priority": 1,
+    "delivered": false,
+    "deliveredAt": null
+  }
+]

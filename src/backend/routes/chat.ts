@@ -41,6 +41,74 @@ import type { TriStateOrchestrator } from '../tri-state.js';
 import type { HealthMonitor } from '../health-signal.js';
 import type { ColdMemory } from '../memory/cold-db.js';
 
+// ── CAVEMAN: 洞穴人角色切换模式 ──
+
+import { getCavemanCore, getCavemanPromptPatch, handleCavemanCommand, containsCavemanCommand, parseCavemanCommand } from '../services/caveman.js';
+
+// ── CAVEMAN SSE 压缩层 ──
+// 在 caveman 激活时，对流式 token 进行实时压缩/截断。
+// 压缩策略：
+//   - maxResponseLength 限制 → 累积字符超限后截断并停止读取流
+//   - 默认不激活（caveman level === 'off'），透传零开销
+//   - 截断时推送 caveman_truncated SSE 事件通知前端
+
+interface CavemanCompressor {
+  /** 压缩单个 token，返回 {output, truncated} */
+  compress(token: string): { output: string; truncated: boolean };
+  /** 重置状态（新对话轮次开始前调用） */
+  reset(): void;
+  /** 获取已累积的输出内容 */
+  getAccumulated(): string;
+  /** 是否已被截断 */
+  getIsTruncated(): boolean;
+}
+
+function createCavemanCompressor(): CavemanCompressor {
+  let accumulated = '';
+  let isTruncated = false;
+
+  return {
+    compress(token: string): { output: string; truncated: boolean } {
+      const core = getCavemanCore();
+      if (!core.isActive()) return { output: token, truncated: false };
+
+      const config = core.getState().config;
+
+      // maxResponseLength === 0 表示不限制
+      if (config.maxResponseLength > 0) {
+        const remaining = config.maxResponseLength - accumulated.length;
+        if (remaining <= 0) {
+          if (!isTruncated) {
+            isTruncated = true;
+            // 估算节省的 token 数（粗略：字符数 / 3 约等于 token 数）
+            const savedTokens = Math.ceil(token.length / 3);
+            core.addTokenSaved(savedTokens);
+            console.log(`[caveman] ✂️ SSE truncated at ${config.maxResponseLength} chars (saved ~${savedTokens} tokens)`);
+          }
+          return { output: '', truncated: true };
+        }
+        if (token.length > remaining) {
+          const clipped = token.slice(0, remaining);
+          accumulated += clipped;
+          isTruncated = true;
+          return { output: clipped, truncated: true };
+        }
+      }
+
+      accumulated += token;
+      return { output: token, truncated: false };
+    },
+
+    reset() {
+      accumulated = '';
+      isTruncated = false;
+    },
+
+    getAccumulated() { return accumulated; },
+    getIsTruncated() { return isTruncated; },
+  };
+}
+
 // ── ESA: 具身自注意力认知架构 ──
 
 import { ESACore, getEsaToolDefinitions } from '../esa-core.js';
@@ -52,6 +120,10 @@ import { getBrowserToolDefinitions, BROWSER_TOOL_LABELS } from '../harness/brows
 // ── Self-Scan: 自代码自省工具 ──
 
 import { getSelfScanToolDefinition } from './self-scan.js';
+
+// ── 消息持久化（单一持久化源）──
+
+import { appendMessage } from './messages.js';
 
 // ── Phase 1: 输出重构器 prompt ──
 
@@ -259,6 +331,58 @@ async function executeToolCall(toolCall: ToolCall): Promise<string> {
     return result;
   }
 
+  // ── Web Search 工具（Tavily API）──
+  if (name === 'web_search') {
+    const query = String(parsedArgs.query || '');
+    const maxResults = Number(parsedArgs.max_results) || 5;
+    if (!query) return JSON.stringify({ error: 'query is required' });
+    setAgentStatus({ phase: 'tool', detail: `搜索: ${query.slice(0, 40)}`, toolName: 'web_search' });
+    try {
+      const { searchTavily } = await import('../tavily-service.js');
+      const result = await searchTavily(tavilyApiKey || '', {
+        query,
+        maxResults: Math.min(Math.max(maxResults, 1), 10),
+        includeAnswer: true,
+      });
+      setAgentStatus({ phase: 'tool-result', detail: `搜索完成: ${result.results.length} 条结果`, toolName: 'web_search' });
+      return JSON.stringify(result);
+    } catch (err) {
+      const error = err as Error;
+      setAgentStatus({ phase: 'tool-result', detail: `搜索失败: ${error.message}`, toolName: 'web_search' });
+      return JSON.stringify({ error: `Web search failed: ${error.message}` });
+    }
+  }
+
+  // ── Web Fetch 工具（获取网页内容）──
+  if (name === 'web_fetch') {
+    const url = String(parsedArgs.url || '');
+    const maxLength = Number(parsedArgs.max_length) || 5000;
+    if (!url || !url.startsWith('http')) return JSON.stringify({ error: 'valid http/https URL is required' });
+    setAgentStatus({ phase: 'tool', detail: `获取: ${url.slice(0, 60)}`, toolName: 'web_fetch' });
+    try {
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; mainfold-agent/1.0)' },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+      const html = await res.text();
+      // 简单提取文本：移除 script/style 标签，提取纯文本
+      const text = html
+        .replace(/<script[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[\s\S]*?<\/style>/gi, '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, maxLength);
+      setAgentStatus({ phase: 'tool-result', detail: `获取完成: ${text.length} 字符`, toolName: 'web_fetch' });
+      return JSON.stringify({ url, content: text, length: text.length });
+    } catch (err) {
+      const error = err as Error;
+      setAgentStatus({ phase: 'tool-result', detail: `获取失败: ${error.message}`, toolName: 'web_fetch' });
+      return JSON.stringify({ error: `Web fetch failed: ${error.message}` });
+    }
+  }
+
   // ── HTTP 代理工具（由 tools 路由处理后端逻辑）──
 
   const endpointMap: Record<string, string> = {
@@ -329,7 +453,7 @@ async function executeToolCall(toolCall: ToolCall): Promise<string> {
 }
 
 /** Function calling 最大循环深度 */
-const MAX_TOOL_CALL_DEPTH = 10;
+const MAX_TOOL_CALL_DEPTH = 50;
 
 // ── Phase 1: 输出重构器 ──
 
@@ -422,6 +546,8 @@ export function createChatRouter(deps: {
   /** MiMo (小米) — 可选 API 提供商配置 */
   mimoApiKey?: string;
   mimoBaseUrl?: string;
+  /** Tavily Web Search API Key */
+  tavilyApiKey?: string;
   /** SICR 种子引力场：用用户消息语义匹配休眠种子，返回筛选后的上下文文本 */
   getSeedContext?: (userMessage: string) => Promise<string>;
   /** 收到 [心流] 前缀消息时调用的入库回调 */
@@ -430,11 +556,31 @@ export function createChatRouter(deps: {
   coldMemory?: ColdMemory;
 }): Router {
   const router = Router();
-  const { systemPrompt, triState, healthMonitor, apiKey, mimoApiKey, mimoBaseUrl, getSeedContext } = deps;
+  const { systemPrompt, triState, healthMonitor, apiKey, mimoApiKey, mimoBaseUrl, tavilyApiKey, getSeedContext } = deps;
 
   // ── POST /api/chat ──
 
   router.post('/api/chat', async (req: Request, res: Response) => {
+    // ── SSE 状态变量（声明在 try 外部，确保 catch 块可访问）──
+    let isStreaming = false;
+    let sseInitialized = false;
+
+    function initSSE() {
+      if (sseInitialized) return;
+      sseInitialized = true;
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.flushHeaders();
+    }
+
+    function sendSSE(event: string, data: Record<string, unknown>) {
+      if (!isStreaming) return;
+      initSSE();
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    }
+
     try {
       // 1. 验证请求（运行逻辑等同旧 ChatRequest Pydantic 验证）
       const parsed = ChatRequestSchema.safeParse(req.body);
@@ -461,6 +607,39 @@ export function createChatRouter(deps: {
         }
       }
 
+      // ── Caveman 命令处理 ──
+      if (typeof cleanedMessage === 'string' && containsCavemanCommand(cleanedMessage)) {
+        const cavemanResponse = handleCavemanCommand(cleanedMessage);
+        if (cavemanResponse) {
+          const cavemanCore2 = getCavemanCore();
+          const level = cavemanCore2.getLevel();
+          if (level !== 'off') {
+            console.log('[chat] Caveman activated: ' + level);
+          }
+          // 直接返回确认消息（跳过 AI 调用）
+          if (isStreaming) {
+            initSSE();
+            sendSSE('caveman', { content: cavemanResponse });
+            sendSSE('done', {
+              content: cavemanResponse,
+              token_used: 0,
+              finish_reason: 'stop',
+              timestamp: new Date().toISOString(),
+            });
+            res.end();
+          } else {
+            res.json({
+              content: cavemanResponse,
+              token_used: 0,
+              finish_reason: 'stop',
+              timestamp: new Date().toISOString(),
+            });
+          }
+          resetAgentStatus();
+          return;
+        }
+      }
+
       // 3. 构建 system prompt（含 SICR 种子引力场 + ESA 注意力状态）
       const esa = ESACore.getInstance();
       const esaState = esa.beforeMessage(message);
@@ -472,6 +651,16 @@ export function createChatRouter(deps: {
       }
       if (esaState.attentionNote) {
         fullSystemPrompt += `\n\n${esaState.attentionNote}`;
+      }
+
+      // ── Caveman prompt 补丁注入 ──
+      const cavemanCore3 = getCavemanCore();
+      if (cavemanCore3.isActive()) {
+        const cavemanPatch = getCavemanPromptPatch(cavemanCore3.getLevel());
+        if (cavemanPatch) {
+          fullSystemPrompt += '\n\n' + cavemanPatch;
+          console.log('[chat] Caveman patch injected: ' + cavemanCore3.getLevel());
+        }
       }
 
       // 【根因修复】：注入 system_prompt 作为第一条消息
@@ -666,8 +855,53 @@ export function createChatRouter(deps: {
         },
       };
 
+      // ── Web Search / Fetch 工具（Tavily API）──
+      const webSearchTool = {
+        type: 'function' as const,
+        function: {
+          name: 'web_search',
+          description: '搜索互联网获取实时信息。使用 Tavily API，返回标题、URL、摘要。适用于查询最新资讯、技术文档、新闻等。',
+          parameters: {
+            type: 'object',
+            properties: {
+              query: {
+                type: 'string',
+                description: '搜索关键词（如 "DeepSeek V3 API 最新文档"）',
+              },
+              max_results: {
+                type: 'number',
+                description: '返回结果数量，默认 5，最大 10',
+              },
+            },
+            required: ['query'],
+          },
+        },
+      };
+
+      const webFetchTool = {
+        type: 'function' as const,
+        function: {
+          name: 'web_fetch',
+          description: '获取指定 URL 的网页内容。返回页面文本摘要。适用于读取文章、文档、API 文档等。',
+          parameters: {
+            type: 'object',
+            properties: {
+              url: {
+                type: 'string',
+                description: '要获取的 URL（必须是 http/https 开头）',
+              },
+              max_length: {
+                type: 'number',
+                description: '返回内容最大字符数，默认 5000',
+              },
+            },
+            required: ['url'],
+          },
+        },
+      };
+
       const browserTools = getBrowserToolDefinitions();
-      const builtInTools = [...esaTools, ...browserTools, selfScanTool, readFileTool, execTool, writeFileTool, lsTool, gitTool, httpTool];
+      const builtInTools = [...esaTools, ...browserTools, selfScanTool, readFileTool, execTool, writeFileTool, lsTool, gitTool, httpTool, webSearchTool, webFetchTool];
       let requestTools = parsed.data.tools;
       const requestToolChoice = parsed.data.tool_choice;
       if (requestTools && requestTools.length > 0) {
@@ -683,32 +917,19 @@ export function createChatRouter(deps: {
 
       // ── SSE 流式输出辅助 ──
       // 当 requestStream=true 时，设置 SSE 响应头，后续通过 res.write() 逐 token 推送
-      const isStreaming = requestStream === true;
-      let sseInitialized = false;
-
-      function initSSE() {
-        if (sseInitialized) return;
-        sseInitialized = true;
-        res.setHeader('Content-Type', 'text/event-stream');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Connection', 'keep-alive');
-        res.setHeader('X-Accel-Buffering', 'no');
-        res.flushHeaders();
-      }
-
-      function sendSSE(event: string, data: Record<string, unknown>) {
-        if (!isStreaming) return;
-        initSSE();
-        res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-      }
+      isStreaming = requestStream === true;
 
       /**
        * 解析 DeepSeek SSE 流，收集完整响应
        * 返回 { content, reasoning_content, tool_calls, finish_reason, usage }
+       *
+       * CAVEMAN 集成（第2轮）：在流式响应中添加可选的 CAVEMAN 压缩层。
+       * 当用户通过 /caveman 命令激活时，实时压缩/截断输出 token。
+       * 默认不激活（caveman level === 'off'），透传零开销。
        */
       async function consumeSSEStream(
         apiResponse: Response,
-      ): Promise<{ content: string; reasoning: string; tool_calls: ToolCall[] | null; finish_reason: string; usage: { total_tokens: number } | null }> {
+      ): Promise<{ content: string; reasoning: string; tool_calls: ToolCall[] | null; finish_reason: string; usage: { total_tokens: number } | null; cavemanTruncated: boolean }> {
         const reader = apiResponse.body!.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
@@ -719,8 +940,14 @@ export function createChatRouter(deps: {
         // tool_calls 需要从多个 chunk 中拼接
         const toolCallsMap: Record<number, { id: string; name: string; arguments: string }> = {};
 
+        // ── CAVEMAN SSE 压缩器 ──
+        // 每轮对话新建实例，caveman off 时透传无开销
+        const cavemanCompressor = createCavemanCompressor();
+        let stopReading = false;
+
         try {
           while (true) {
+            if (stopReading) break;
             const { done, value } = await reader.read();
             if (done) break;
             buffer += decoder.decode(value, { stream: true });
@@ -730,6 +957,7 @@ export function createChatRouter(deps: {
             buffer = lines.pop() || ''; // 保留不完整的行
 
             for (const line of lines) {
+              if (stopReading) break;
               if (line.startsWith('data: ')) {
                 const jsonStr = line.slice(6).trim();
                 if (jsonStr === '[DONE]') continue;
@@ -743,15 +971,33 @@ export function createChatRouter(deps: {
                   // usage 可能在最后一个 chunk
                   if (chunk.usage) usage = chunk.usage;
 
-                  const deltaMsg = delta.message ?? (delta as Record<string, unknown>);
+                  // DeepSeek SSE: choice 结构为 {index, delta: {content, reasoning_content, tool_calls}, finish_reason}
+                  // delta.message 不存在时，fallback 到 delta.delta（实际内容所在）
+                  const deltaMsg = delta.message ?? (delta as Record<string, unknown>).delta ?? (delta as Record<string, unknown>);
                   if (!deltaMsg) continue;
 
-                  // 文本内容
+                  // ── 文本内容（CAVEMAN 压缩层在此介入）──
                   const deltaContent = (deltaMsg as Record<string, unknown>).content;
                   if (typeof deltaContent === 'string' && deltaContent) {
-                    content += deltaContent;
-                    // 逐 token 推送给前端
-                    sendSSE('token', { content: deltaContent, accumulated: content });
+                    // CAVEMAN 压缩层：caveman 激活时实时压缩/截断 token
+                    const { output, truncated } = cavemanCompressor.compress(deltaContent);
+                    if (output) {
+                      content += output;
+                      // 逐 token 推送给前端（已压缩版本）
+                      sendSSE('token', { content: output, accumulated: content });
+                    }
+                    if (truncated && !stopReading) {
+                      stopReading = true;
+                      const level = getCavemanCore().getLevel();
+                      const config = getCavemanCore().getState().config;
+                      console.log(`[caveman] 🛑 SSE stream stopped at ${config.maxResponseLength} chars (${level} mode)`);
+                      sendSSE('caveman_truncated', {
+                        level,
+                        limit: config.maxResponseLength,
+                        accumulated: cavemanCompressor.getAccumulated(),
+                        note: `Caveman ${level} 模式：回复已截断至 ${config.maxResponseLength} 字符`,
+                      });
+                    }
                   }
 
                   // reasoning_content（thinking mode）
@@ -797,7 +1043,14 @@ export function createChatRouter(deps: {
             }))
           : null;
 
-        return { content, reasoning, tool_calls, finish_reason, usage };
+        return {
+          content,
+          reasoning,
+          tool_calls: toolCalls,
+          finish_reason,
+          usage,
+          cavemanTruncated: cavemanCompressor.getIsTruncated(),
+        };
       }
 
       while (toolCallDepth < MAX_TOOL_CALL_DEPTH) {
@@ -870,6 +1123,7 @@ export function createChatRouter(deps: {
 
             // 构造兼容的 choice 对象
             const assistantMsg = {
+              role: 'assistant',
               content: sseResult.content || null,
               tool_calls: sseResult.tool_calls,
               reasoning_content: sseResult.reasoning || undefined,
@@ -898,6 +1152,12 @@ export function createChatRouter(deps: {
           // 普通内容响应（流式）
           finalContent = sseResult.content;
           finalReasoning = sseResult.reasoning || null;
+
+          // 如果 CAVEMAN 截断了流，但在 tool_calls 路径中未被处理，在此标记
+          // 注意：截断后不走 tool_calls 路径，直接进入最终回复
+          if (sseResult.cavemanTruncated) {
+            console.log(`[caveman] ✅ Final content truncated to ${finalContent.length} chars`);
+          }
         } else {
           // 非流式模式：等待完整 JSON 响应
           data = (await apiResponse.json()) as DeepSeekApiResponse;
@@ -970,6 +1230,34 @@ export function createChatRouter(deps: {
         } catch (err) {
           // 日志失败不阻塞主流程
           console.error(`[chat] Cold memory log failed: ${(err as Error).message}`);
+        }
+      }
+
+      // 7.6 Phase F: 消息文件持久化（单一持久化源，替代 localStorage + sessions.json 双写）
+      if (session_id && typeof cleanedMessage === 'string' && finalContent) {
+        try {
+          const timestamp = new Date().toISOString();
+          appendMessage(session_id, {
+            id: `msg_${Date.now()}_user`,
+            role: 'user',
+            content: String(cleanedMessage),
+            timestamp,
+            source: 'user',
+            senderModel: normalizedModel,
+          }, { title: `对话 ${new Date().toLocaleDateString()}`, model: normalizedModel });
+          appendMessage(session_id, {
+            id: `msg_${Date.now()}_assistant`,
+            role: 'assistant',
+            content: finalContent,
+            reasoning_content: finalReasoning,
+            timestamp,
+            token_used: totalTokens,
+            tool_call_depth: toolCallDepth,
+            senderModel: normalizedModel,
+          });
+          console.log(`[chat] Messages persisted to data/messages/ (${session_id})`);
+        } catch (err) {
+          console.error(`[chat] Message persist failed: ${(err as Error).message}`);
         }
       }
 

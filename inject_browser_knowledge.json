@@ -1,0 +1,6 @@
+{
+  "content": "[WorkBuddy 浏览器工具使用指南]\n\n浏览器自动化已通过运行时验证（5/5 测试通过）。\n\n**正确调用方式**：\n1. `browser_status` — 查看浏览器引擎状态（无需参数）\n2. `browser_navigate(url)` — 打开网页（首次调用自动启动 Chromium，无需手动启动）\n3. `browser_screenshot(url)` — 截图\n4. `browser_extract(url)` — 提取页面文本\n5. `browser_fill_form(url, fields)` — 填写表单\n6. `browser_click(url, selector)` — 点击元素\n\n**关键点**：\n- 没有 `browser_launch` 工具，浏览器通过 `browser_navigate` 惰性启动\n- 所有需要 URL 的工具都会自动触发浏览器启动\n- `browser_status` 只检查状态，不启动浏览器\n\n**典型流程**：\n```\nbrowser_status → browser_navigate(url) → browser_extract(url) → browser_screenshot(url)\n```",
+  "source": "workbuddy",
+  "priority": 3,
+  "tags": ["browser", "i-browser-001", "tool-usage", "playwright"]
+}

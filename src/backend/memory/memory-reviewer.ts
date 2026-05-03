@@ -147,14 +147,20 @@ export class MemoryReviewer {
     // Step 2: 检测错误教训
     totalChanges += this.detectErrorLessons();
 
-    // Step 3: 暖记忆去重
+    // Step 3: 检测摩擦点模式（WorkBuddy 移植）
+    totalChanges += this.detectFrictionPatterns();
+
+    // Step 4: 检测修复评估模式（WorkBuddy 移植）
+    totalChanges += this.detectRepairPatterns();
+
+    // Step 5: 暖记忆去重
     const deduped = this.warm.deduplicate();
     if (deduped > 0) {
       console.log(`[memory-reviewer] Deduplicated ${deduped} warm entries`);
     }
     totalChanges += deduped;
 
-    // Step 4: 暖记忆裁剪（如果超过 maxEntries 的 90%）
+    // Step 6: 暖记忆裁剪（如果超过 maxEntries 的 90%）
     const warmStats = this.warm.getStats();
     if (warmStats.total > this.config.warmMaxEntries * 0.9) {
       const target = Math.floor(this.config.warmMaxEntries * 0.7);
@@ -165,7 +171,7 @@ export class MemoryReviewer {
       totalChanges += pruned;
     }
 
-    // Step 5: 冷记忆裁剪（保留最近 N 天）
+    // Step 7: 冷记忆裁剪（保留最近 N 天）
     const coldPruned = this.cold.pruneOlderThan(this.config.coldRetentionDays);
     if (coldPruned.conversations_pruned > 0 || coldPruned.operations_pruned > 0) {
       console.log(`[memory-reviewer] Cold prune: ${coldPruned.conversations_pruned} conversations, ${coldPruned.operations_pruned} operations`);
@@ -261,6 +267,116 @@ export class MemoryReviewer {
             changes++;
           }
         }
+      }
+    }
+
+    return changes;
+  }
+
+  // ── 摩擦点检测（WorkBuddy 移植） ──
+
+  /**
+   * 检测摩擦点模式。
+   * 扫描暖记忆中的摩擦点条目，统计高频维度和严重级别。
+   */
+  private detectFrictionPatterns(): number {
+    const frictionEntries = this.warm.getByType('friction_point');
+    let changes = 0;
+
+    if (frictionEntries.length >= 3) {
+      // 按维度分组
+      const byDimension: Record<string, { count: number; severities: string[] }> = {};
+      for (const entry of frictionEntries) {
+        const dim = entry.tags.find(t => t.startsWith('DIM-') || ['memory_retrieval', 'rule_trigger', 'experience_reuse', 'daily_log_quality', 'cross_file_collab', 'code_quality', 'api_consistency', 'repair_observation'].includes(t));
+        if (dim) {
+          if (!byDimension[dim]) {
+            byDimension[dim] = { count: 0, severities: [] };
+          }
+          byDimension[dim].count++;
+          const sev = entry.tags.find(t => ['low', 'medium', 'high', 'critical'].includes(t));
+          if (sev) byDimension[dim].severities.push(sev);
+        }
+      }
+
+      // 为高频维度创建汇总条目
+      for (const [dim, info] of Object.entries(byDimension)) {
+        if (info.count >= 3) {
+          const existing = this.warm.search(dim)
+            .filter(e => e.type === 'observation_metric' && e.source === 'memory-reviewer');
+
+          if (existing.length === 0) {
+            const criticalCount = info.severities.filter(s => s === 'critical').length;
+            const highCount = info.severities.filter(s => s === 'high').length;
+
+            this.warm.add({
+              type: 'observation_metric',
+              title: `摩擦点汇总: ${dim}`,
+              summary: `维度 ${dim} 已记录 ${info.count} 个摩擦点。其中 critical: ${criticalCount}, high: ${highCount}。`,
+              tags: ['friction_summary', dim, 'auto_detected'],
+              source: 'memory-reviewer',
+              importance: Math.min(0.8, 0.4 + info.count * 0.05 + criticalCount * 0.1),
+            });
+            changes++;
+          }
+        }
+      }
+    }
+
+    return changes;
+  }
+
+  // ── 修复评估检测（WorkBuddy 移植） ──
+
+  /**
+   * 检测修复评估模式。
+   * 扫描暖记忆中的修复评估条目，统计修复成功率和常见摩擦点。
+   */
+  private detectRepairPatterns(): number {
+    const repairEntries = this.warm.getByType('repair_evaluation');
+    let changes = 0;
+
+    if (repairEntries.length >= 3) {
+      // 统计修复成功率
+      let successCount = 0;
+      let totalAttempts = 0;
+      const frictionTypes: Record<string, number> = {};
+
+      for (const entry of repairEntries) {
+        try {
+          const data = JSON.parse(entry.summary);
+          if (data.verification?.fixVerified) successCount++;
+          if (data.attempt?.number) totalAttempts += data.attempt.number;
+          if (data.frictionPoints && Array.isArray(data.frictionPoints)) {
+            for (const fp of data.frictionPoints) {
+              frictionTypes[fp.type] = (frictionTypes[fp.type] || 0) + 1;
+            }
+          }
+        } catch {
+          // 解析失败，跳过
+        }
+      }
+
+      // 创建修复汇总条目
+      const existing = this.warm.search('修复汇总')
+        .filter(e => e.type === 'observation_metric' && e.source === 'memory-reviewer');
+
+      if (existing.length === 0) {
+        const successRate = repairEntries.length > 0 ? Math.round((successCount / repairEntries.length) * 100) : 0;
+        const topFriction = Object.entries(frictionTypes)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 3)
+          .map(([type, count]) => `${type}(${count})`)
+          .join(', ');
+
+        this.warm.add({
+          type: 'observation_metric',
+          title: '修复汇总',
+          summary: `共 ${repairEntries.length} 次修复，成功率 ${successRate}%，平均尝试 ${totalAttempts > 0 ? Math.round(totalAttempts / repairEntries.length) : 0} 次。常见摩擦点: ${topFriction || '无'}`,
+          tags: ['repair_summary', 'auto_detected'],
+          source: 'memory-reviewer',
+          importance: 0.7,
+        });
+        changes++;
       }
     }
 

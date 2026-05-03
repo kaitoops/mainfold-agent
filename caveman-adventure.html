@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🐗 洞穴人冒险 · CAVE MAN</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=MedievalSharp&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: linear-gradient(180deg, #1a0e0a 0%, #2d1810 50%, #1a0e0a 100%);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-family: 'MedievalSharp', 'Courier New', monospace;
+    padding: 20px;
+  }
+
+  #game {
+    max-width: 800px;
+    width: 100%;
+    background: #2a1a10;
+    border: 4px solid #8b6b4a;
+    border-radius: 20px;
+    box-shadow: 0 0 60px rgba(139, 107, 74, 0.3), inset 0 0 60px rgba(0,0,0,0.5);
+    overflow: hidden;
+    position: relative;
+  }
+
+  #game::before {
+    content: "🔥🔥🔥";
+    display: block;
+    text-align: center;
+    font-size: 28px;
+    padding: 10px 0 0 0;
+    letter-spacing: 20px;
+    opacity: 0.8;
+  }
+
+  #header {
+    text-align: center;
+    padding: 15px 20px 5px;
+    border-bottom: 2px solid #5a3a2a;
+  }
+
+  #header h1 {
+    font-size: 36px;
+    color: #e8c88a;
+    text-shadow: 0 0 20px rgba(232, 200, 138, 0.3);
+    letter-spacing: 8px;
+  }
+
+  #header .subtitle {
+    color: #a08060;
+    font-size: 14px;
+    letter-spacing: 4px;
+    margin-top: 4px;
+  }
+
+  #stats {
+    display: flex;
+    justify-content: space-around;
+    padding: 12px 20px;
+    background: rgba(0,0,0,0.3);
+    border-bottom: 1px solid #3a2a1a;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .stat {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #c0a080;
+    font-size: 16px;
+  }
+
+  .stat .icon { font-size: 20px; }
+  .stat .value {
+    color: #e8c88a;
+    font-weight: bold;
+    min-width: 24px;
+    text-align: center;
+  }
+  .stat .label { color: #8a7a6a; font-size: 13px; }
+
+  .stat-bar {
+    width: 80px;
+    height: 8px;
+    background: #1a0e0a;
+    border-radius: 4px;
+    overflow: hidden;
+    border: 1px solid #3a2a1a;
+  }
+
+  .stat-bar .fill {
+    height: 100%;
+    background: linear-gradient(90deg, #c0392b, #e74c3c);
+    border-radius: 4px;
+    transition: width 0.5s ease;
+  }
+
+  .stat-bar .fill.joy { background: linear-gradient(90deg, #27ae60, #2ecc71); }
+  .stat-bar .fill.belly { background: linear-gradient(90deg, #d4a017, #f0c040); }
+
+  #scene {
+    min-height: 280px;
+    padding: 25px 30px;
+    background: rgba(0,0,0,0.2);
+    position: relative;
+  }
+
+  #scene-image {
+    text-align: center;
+    font-size: 64px;
+    margin-bottom: 15px;
+    animation: pulse 3s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); opacity: 0.9; }
+    50% { transform: scale(1.05); opacity: 1; }
+  }
+
+  #scene-text {
+    color: #d4c0a8;
+    font-size: 17px;
+    line-height: 1.8;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+  }
+
+  #scene-text .highlight { color: #f0d080; font-weight: bold; }
+  #scene-text .danger { color: #e74c3c; font-weight: bold; }
+  #scene-text .success { color: #2ecc71; font-weight: bold; }
+  #scene-text .item { color: #8ecae6; font-weight: bold; }
+  #scene-text .narrate { color: #8a7a6a; font-style: italic; }
+  #scene-text p { margin-bottom: 10px; }
+  #scene-text p:last-child { margin-bottom: 0; }
+
+  #choices {
+    padding: 15px 30px 25px;
+    border-top: 1px solid #3a2a1a;
+  }
+
+  #choices-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .choice-btn {
+    background: linear-gradient(135deg, #3a2518, #2a1a10);
+    border: 2px solid #5a3a2a;
+    color: #d4c0a8;
+    padding: 12px 20px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 16px;
+    font-family: 'MedievalSharp', monospace;
+    text-align: left;
+    transition: all 0.2s ease;
+    position: relative;
+  }
+
+  .choice-btn:hover:not(:disabled) {
+    background: linear-gradient(135deg, #5a3a2a, #3a2518);
+    border-color: #8b6b4a;
+    color: #f0e0c0;
+    transform: translateX(6px);
+    box-shadow: 0 0 20px rgba(139, 107, 74, 0.2);
+  }
+
+  .choice-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .choice-btn .key {
+    display: inline-block;
+    width: 28px;
+    height: 28px;
+    line-height: 28px;
+    text-align: center;
+    background: #1a0e0a;
+    border: 1px solid #5a3a2a;
+    border-radius: 6px;
+    margin-right: 12px;
+    font-size: 13px;
+    color: #8b6b4a;
+  }
+
+  #inventory {
+    padding: 10px 30px 15px;
+    border-top: 1px solid #3a2a1a;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    min-height: 50px;
+  }
+
+  #inventory .inv-label { color: #6a5a4a; font-size: 13px; letter-spacing: 2px; }
+  .inv-item {
+    background: #1a0e0a;
+    border: 1px solid #3a2a1a;
+    border-radius: 8px;
+    padding: 4px 12px;
+    color: #d4c0a8;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  #inventory-empty { color: #5a4a3a; font-style: italic; font-size: 13px; }
+
+  #footer {
+    text-align: center;
+    padding: 12px;
+    border-top: 2px solid #3a2a1a;
+    color: #5a4a3a;
+    font-size: 12px;
+    letter-spacing: 2px;
+  }
+
+  #restart-btn {
+    background: none;
+    border: 1px solid #3a2a1a;
+    color: #6a5a4a;
+    padding: 6px 18px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+    letter-spacing: 2px;
+    transition: all 0.2s;
+    margin-left: 12px;
+  }
+
+  #restart-btn:hover { border-color: #8b6b4a; color: #d4c0a8; }
+
+  #notification {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #2a1a10;
+    border: 2px solid #8b6b4a;
+    color: #f0e0c0;
+    padding: 15px 30px;
+    border-radius: 12px;
+    font-family: 'MedievalSharp', monospace;
+    font-size: 18px;
+    box-shadow: 0 0 40px rgba(0,0,0,0.8);
+    opacity: 0;
+    transition: opacity 0.4s ease;
+    pointer-events: none;
+    z-index: 1000;
+    text-align: center;
+  }
+
+  #notification.show { opacity: 1; }
+
+  @media (max-width: 600px) {
+    #scene { padding: 20px; min-height: 220px; }
+    #scene-text { font-size: 15px; }
+    #choices { padding: 15px 20px 20px; }
+    .choice-btn { font-size: 14px; padding: 10px 14px; }
+    #header h1 { font-size: 28px; letter-spacing: 4px; }
+    #stats { padding: 10px; }
+    .stat { font-size: 14px; }
+    .stat-bar { width: 60px; }
+    #scene-image { font-size: 48px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="game">
+  <div id="header">
+    <h1>CAVE MAN</h1>
+    <div class="subtitle">╰ 原始生存 · 文本冒险 ╯</div>
+  </div>
+
+  <div id="stats">
+    <div class="stat">
+      <span class="icon">❤️</span>
+      <span class="label">生命</span>
+      <div class="stat-bar"><div class="fill" id="hp-bar" style="width:100%"></div></div>
+      <span class="value" id="hp-value">10</span>
+    </div>
+    <div class="stat">
+      <span class="icon">🍖</span>
+      <span class="label">饱食</span>
+      <div class="stat-bar"><div class="fill belly" id="food-bar" style="width:100%"></div></div>
+      <span class="value" id="food-value">10</span>
+    </div>
+    <div class="stat">
+      <span class="icon">⛰️</span>
+      <span class="label">天数</span>
+      <span class="value" id="day-value">1</span>
+    </div>
+    <div class="stat">
+      <span class="icon">💀</span>
+      <span class="label">死亡</span>
+      <span class="value" id="death-value">0</span>
+    </div>
+  </div>
+
+  <div id="scene">
+    <div id="scene-image">🏔️</div>
+    <div id="scene-text">
+      <p>你从洞穴中醒来，头骨隐隐作痛。</p>
+      <p>昨晚的雷火盛宴让你彻底断片了——</p>
+      <p>等等，你的<span class="item">木棍</span>呢？那根跟了你三年的打狗棒呢？！</p>
+      <p class="narrate">（你隐约记得昨晚用它戳了一只剑齿虎的屁股...）</p>
+    </div>
+  </div>
+
+  <div id="choices">
+    <div id="choices-list">
+      <button class="choice-btn" data-key="1"><span class="key">1</span> 🔍 在洞穴里仔细搜寻</button>
+      <button class="choice-btn" data-key="2"><span class="key">2</span> 🚪 直接走出去看看</button>
+      <button class="choice-btn" data-key="3"><span class="key">3</span> 😴 再睡一会儿（恢复 2 HP）</button>
+    </div>
+  </div>
+
+  <div id="inventory">
+    <span class="inv-label">🎒 物品:</span>
+    <span id="inventory-empty">（空空如也）</span>
+  </div>
+
+  <div id="footer">
+    🦴 按键 1-9 选择 · 或点击选项
+    <button id="restart-btn">⟳ 从头开始</button>
+  </div>
+</div>
+
+<div id="notification"></div>
+
+<script>
+// ===================== CAVE MAN · 洞穴人冒险 =====================
+
+const STATE = {
+  hp: 10, maxHp: 10,
+  food: 10, maxFood: 10,
+  day: 1, deaths: 0,
+  inventory: [], flags: {},
+  currentScene: 'start', gameOver: false,
+};
+
+function $(id) { return document.getElementById(id); }
+function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+function pick(arr) { return arr[rand(0, arr.length - 1)]; }
+function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+// 通知
+let notifTimer = null;
+function notify(msg, duration = 2000) {
+  const el = $('notification');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(notifTimer);
+  notifTimer = setTimeout(() => el.classList.remove('show'), duration);
+}
+
+// 状态渲染
+function renderStats() {
+  const hpPct = (STATE.hp / STATE.maxHp) * 100;
+  const foodPct = (STATE.food / STATE.maxFood) * 100;
+  $('hp-bar').style.width = hpPct + '%';
+  $('hp-value').textContent = STATE.hp;
+  $('food-bar').style.width = foodPct + '%';
+  $('food-value').textContent = STATE.food;
+  $('day-value').textContent = STATE.day;
+  $('death-value').textContent = STATE.deaths;
+}
+
+function renderInventory() {
+  document.querySelectorAll('.inv-item').forEach(el => el.remove());
+  const empty = $('inventory-empty');
+  if (STATE.inventory.length === 0) {
+    empty.style.display = 'inline';
+  } else {
+    empty.style.display = 'none';
+    STATE.inventory.forEach(item => {
+      const el = document.createElement('span');
+      el.className = 'inv-item';
+      el.textContent = item.icon + ' ' + item.name;
+      $('inventory').appendChild(el);
+    });
+  }
+}
+
+// 伤害/治疗/进食
+function damage(amount, reason) {
+  STATE.hp = clamp(STATE.hp - amount, 0, STATE.maxHp);
+  if (amount > 0) notify(`💥 -${amount} HP${reason ? ' — ' + reason : ''}`);
+  if (STATE.hp <= 0) die(reason || '失血过多');
+  renderStats();
+}
+function heal(amount, reason) {
+  STATE.hp = clamp(STATE.hp + amount, 0, STATE.maxHp);
+  if (amount > 0) notify(`💚 +${amount} HP${reason ? ' — ' + reason : ''}`);
+  renderStats();
+}
+function eat(amount) {
+  STATE.food = clamp(STATE.food + amount, 0, STATE.maxFood);
+  if (amount > 0) notify(`🍗 +${amount} 饱食`);
+  renderStats();
+}
+
+function addItem(icon, name) {
+  if (!STATE.inventory.find(i => i.name === name)) {
+    STATE.inventory.push({ icon, name });
+    notify(`🎒 获得: ${icon} ${name}`);
+    renderInventory();
+    return true;
+  }
+  return false;
+}
+function hasItem(name) { return STATE.inventory.some(i => i.name === name); }
+function removeItem(name) {
+  const idx = STATE.inventory.findIndex(i => i.name === name);
+  if (idx >= 0) { STATE.inventory.splice(idx, 1); renderInventory(); return true; }
+  return false;
+}
+function setFlag(flag, val = true) { STATE.flags[flag] = val; }
+function getFlag(flag) { return STATE.flags[flag] || false; }
+
+function nextDay() {
+  STATE.day++;
+  STATE.food = clamp(STATE.food - 2, 0, STATE.maxFood);
+  if (STATE.food <= 0) {
+    damage(2, '饥饿');
+    notify('🌙 你在饥饿中度过一夜...');
+  } else {
+    notify(`🌙 第 ${STATE.day} 天来临`);
+  }
+  renderStats();
+  if (STATE.hp <= 0) return;
+  if (Math.random() < 0.1) randomEvent();
+}
+
+const RANDOM_EVENTS = [
+  { text: () => `<p>🌧️ 半夜暴雨，洞穴进水。<span class="danger">-1 HP</span></p>`, effect: () => damage(1, '山洞漏水') },
+  { text: () => `<p>🌟 流星划过！<span class="success">+1 HP</span> 许愿灵验了</p>`, effect: () => heal(1, '流星许愿') },
+  { text: () => `<p>🦎 抓到一只蜥蜴。<span class="success">+2 饱食</span></p>`, effect: () => eat(2) },
+  { text: () => `<p>💨 洞外怪嚎，你决定不出去看。</p>`, effect: () => {} },
+];
+
+function randomEvent() {
+  const evt = pick(RANDOM_EVENTS);
+  $('scene-text').innerHTML += `<hr style="border-color:#3a2a1a;margin:12px 0;">` + evt.text();
+  evt.effect();
+}
+
+function die(reason) {
+  STATE.gameOver = true; STATE.deaths++; renderStats();
+  $('scene-image').textContent = '💀';
+  $('scene-text').innerHTML = `
+    <p style="text-align:center;font-size:24px;color:#e74c3c;">你死了</p>
+    <p style="text-align:center;"><span class="narrate">${reason}</span></p>
+    <p style="text-align:center;margin-top:16px;">存活了 <span class="highlight">${STATE.day}</span> 天 · 死亡 ${STATE.deaths} 次</p>`;
+  $('choices-list').innerHTML = `
+    <button class="choice-btn" id="restart-from-death"><span class="key">⟳</span> 重新开始</button>`;
+  document.getElementById('restart-from-death').addEventListener('click', restartGame);
+  notify(`💀 ${reason}`);
+}
+
+function restartGame() {
+  STATE.hp = STATE.maxHp; STATE.food = STATE.maxFood;
+  STATE.day = 1; STATE.inventory = []; STATE.flags = {};
+  STATE.gameOver = false; STATE.currentScene = 'start';
+  document.querySelectorAll('.choice-btn').forEach(b => b.disabled = false);
+  goToScene('start');
+  notify('🔄 重获新生', 1500);
+}
+
+// ===================== 场景引擎 =====================
+function goToScene(sceneId) {
+  STATE.currentScene = sceneId;
+  const scene = SCENES[sceneId];
+  if (!scene) return;
+
+  if (scene.onEnter) scene.onEnter();
+
+  $('scene-image').textContent = scene.image || '🏔️';
+  let text = typeof scene.text === 'function' ? scene.text() : scene.text;
+  $('scene-text').innerHTML = text;
+
+  $('choices-list').innerHTML = '';
+  const choices = typeof scene.choices === 'function' ? scene.choices() : scene.choices;
+  if (choices && choices.length > 0) {
+    choices.forEach((choice, idx) => {
+      const key = idx + 1;
+      const btn = document.createElement('button');
+      btn.className = 'choice-btn';
+      btn.dataset.key = key;
+      btn.innerHTML = `<span class="key">${key}</span> ${choice.label}`;
+      btn.disabled = STATE.gameOver || (choice.condition && !choice.condition());
+      btn.addEventListener('click', () => {
+        if (STATE.gameOver) return;
+        if (choice.action) choice.action();
+      });
+      $('choices-list').appendChild(btn);
+    });
+  }
+  renderStats(); renderInventory();
+}
+
+// ===================== 场景定义 =====================
+const SCENES = {};
+
+SCENES.start = {
+  image: '🏔️',
+  text: `<p>你从洞穴中醒来，头骨隐隐作痛。</p>
+         <p>昨晚的雷火盛宴让你彻底断片了——</p>
+         <p>等等，你的<span class="item">木棍</span>呢？那根跟了你三年的打狗棒呢？！</p>
+         <p class="narrate">（你隐约记得昨晚用它戳了一只剑齿虎的屁股...）</p>`,
+  choices: [
+    { label: '🔍 在洞穴里仔细搜寻', action: () => goToScene('cave_search') },
+    { label: '🚪 直接走出去看看', action: () => goToScene('outside') },
+    { label: '😴 再睡一会儿（恢复 2 HP）', action: () => { heal(2, '回笼觉'); nextDay(); goToScene('wake_again'); }},
+  ],
+};
+
+SCENES.cave_search = {
+  image: '🕳️',
+  text: `<p>你在昏暗的洞穴里摸索。火堆已熄灭，空气中弥漫焦味。</p>
+         <p>在角落里，你的木棍静静地躺着，旁边还有东西在发光...</p>`,
+  choices: [
+    { label: '🏑 拿起木棍（老朋友回来了！）', action: () => { addItem('🏑', '木棍'); goToScene('cave_continue'); }},
+    { label: '✨ 先看看那个发光的东西', action: () => goToScene('shiny_thing') },
+    { label: '🔥 重新生火取暖', action: () => { addItem('🔥', '火种'); heal(1, '温暖的火光'); goToScene('cave_continue'); }},
+  ],
+};
+
+SCENES.shiny_thing = {
+  image: '💎',
+  text: `<p>发光的东西是一块<span class="item">闪亮的黑曜石</span>！边缘锋利无比。</p><p class="narrate">（你小心包好收起来）</p>`,
+  choices: [{ label: '📦 收下黑曜石刀刃', action: () => { addItem('🗡️', '黑曜石刃'); goToScene('cave_continue'); } }],
+  onEnter: () => addItem('🗡️', '黑曜石刃'),
+};
+
+SCENES.cave_continue = {
+  image: '🪨',
+  text: `<p>洞穴搜刮完毕。是时候出去看看了。</p><p class="narrate">（外面有鸟鸣...和大型动物的低吼）</p>`,
+  choices: [{ label: '🚶 走出洞穴，迎接新的一天', action: () => { nextDay(); goToScene('outside'); } }],
+};
+
+SCENES.wake_again = {
+  image: '😴',
+  text: `<p>你舒服地翻了个身——阳光刺眼！已经中午了！</p><p class="narrate">（肚子咕咕叫）</p>`,
+  choices: [
+    { label: '🌿 出门觅食', action: () => goToScene('outside') },
+    { label: '🏃 先去找木棍', action: () => goToScene('cave_search') },
+  ],
+};
+
+SCENES.outside = {
+  image: '🌳',
+  text: function() {
+    let t = `<p>你走出洞穴，深吸一口史前空气。</p><p>眼前是原始森林，远处<span class="highlight">河流</span>潺潺，左为<span class="highlight">密林</span>，右有<span class="highlight">果林</span>。</p>`;
+    if (hasItem('🔥')) t += `<p class="narrate">（兜里有火种）</p>`;
+    t += `<p class="narrate">（地上有兽脚印...）</p>`;
+    return t;
+  },
+  choices: function() {
+    const c = [
+      { label: '🌊 去河边看看', action: () => goToScene('river') },
+      { label: '🌲 进入密林深处', action: () => goToScene('deep_forest') },
+      { label: '🍎 去果林摘果子', action: () => goToScene('fruit_grove') },
+    ];
+    if (hasItem('🏑')) c.push({ label: '🦌 追踪兽脚印！狩猎！', action: () => goToScene('hunt') });
+    c.push({ label: '🔙 回洞穴', action: () => goToScene('back_cave') });
+    return c;
+  },
+};
+
+SCENES.river = {
+  image: '🌊',
+  text: `<p>河水清澈，鱼群游动。对岸有<span class="highlight">竹林</span>。石头长满青苔。</p>`,
+  choices: [
+    { label: '🎣 用木棍叉鱼', action: () => { if (hasItem('🏑')) { addItem('🐟', '鱼'); eat(3); } else notify('❌ 没工具'); goToScene('river'); }, condition: () => hasItem('🏑') },
+    { label: '💧 喝水休息', action: () => { heal(1, '清凉河水'); goToScene('river'); }},
+    { label: '🌿 过河去竹林', action: () => goToScene('bamboo_forest') },
+    { label: '🔙 返回洞口', action: () => goToScene('outside') },
+  ],
+};
+
+SCENES.bamboo_forest = {
+  image: '🎋',
+  text: `<p>竹林沙沙响。有<span class="item">竹笋</span>，还有一只<span class="danger">大熊猫</span>在啃竹子。</p>`,
+  choices: [
+    { label: '🎍 挖竹笋（+2 饱食）', action: () => { eat(2); addItem('🎍', '竹笋'); goToScene('bamboo_forest'); }},
+    { label: '🪚 做竹矛（需黑曜石刃）', action: () => { if (hasItem('🗡️')) { addItem('🎯', '竹矛'); notify('🗡️ 削出锋利的竹矛！'); } else notify('❌ 掰不动'); goToScene('bamboo_forest'); }, condition: () => hasItem('🗡️') },
+    { label: '🐼 摸熊猫', action: () => { if (Math.random() < 0.3) notify('🐼 熊猫蹭了你！好软'); else { damage(2, '熊猫掌击'); notify('🐼 熊猫一掌拍开你'); } goToScene('bamboo_forest'); }},
+    { label: '🔙 回河边', action: () => goToScene('river') },
+  ],
+};
+
+SCENES.fruit_grove = {
+  image: '🍎',
+  text: `<p>果林果实累累！香甜的气味飘散在空中。</p>`,
+  choices: [
+    { label: '🫐 摘野果（+2 饱食）', action: () => { eat(2); addItem('🍎', '野果'); goToScene('fruit_grove'); }},
+    { label: '🧗 爬树摘果王', action: () => { if (Math.random() < 0.6) { eat(4); notify('🍑 摘到果王！'); } else { damage(1, '摔下来'); } goToScene('fruit_grove'); }},
+    { label: '🔙 返回洞口', action: () => goToScene('outside') },
+  ],
+};
+
+SCENES.deep_forest = {
+  image: '🌲',
+  text: `<p>密林昏暗，远处有<span class="danger">低沉咆哮</span>。一棵巨树上有<span class="highlight">树洞</span>。</p>`,
+  choices: [
+    { label: '🌳 探索树洞', action: () => goToScene('tree_hole') },
+    { label: '🦁 循咆哮声去看看', action: () => goToScene('beast_encounter') },
+    { label: '🏃 赶紧离开', action: () => goToScene('outside') },
+  ],
+};
+
+SCENES.tree_hole = {
+  image: '🕳️',
+  text: `<p>你摸到一卷<span class="item">古老兽皮卷轴</span>！还有一些<span class="item">干果</span>。</p>`,
+  choices: [
+    { label: '📜 收下兽皮地图', action: () => { addItem('📜', '兽皮地图'); goToScene('deep_forest'); }},
+    { label: '🥜 拿走干果（+2 饱食）', action: () => { eat(2); goToScene('deep_forest'); }},
+    { label: '🔙 退出', action: () => goToScene('deep_forest') },
+  ],
+};
+
+SCENES.beast_encounter = {
+  image: '🐅',
+  text: `<p>你拨开灌木——<span class="danger">一只剑齿虎</span>正在享用午餐！它发现了你。</p>`,
+  choices: [
+    { label: '⚔️ 战斗！（武器加成）', action: () => {
+      const bonus = hasItem('🎯') ? 4 : hasItem('🗡️') ? 3 : hasItem('🏑') ? 1 : -2;
+      const roll = rand(1, 6) + bonus;
+      if (roll >= 5) { notify(`🎉 击败剑齿虎！(${roll})`); addItem('🦷', '剑齿虎牙'); addItem('🥩', '虎肉'); eat(5); goToScene('outside'); }
+      else { damage(4, `剑齿虎反击 (${roll})`); if (STATE.hp > 0) goToScene('outside'); }
+    }},
+    { label: '🏃 逃跑！', action: () => { if (Math.random() < 0.5) notify('💨 逃脱成功'); else damage(2, '逃跑被抓伤'); goToScene('outside'); }},
+  ],
+};
+
+SCENES.hunt = {
+  image: '🦌',
+  text: `<p>兽脚印通向草地——一只<span class="highlight">野鹿</span>在吃草。</p>`,
+  choices: [
+    { label: '🎯 突袭！', action: () => {
+      const roll = rand(1, 6) + (hasItem('🎯') ? 3 : 1);
+      if (roll >= 5) { notify(`🎉 狩猎成功！(${roll})`); addItem('🥩', '鹿肉'); eat(4); addItem('🦌', '鹿皮'); }
+      else notify(`💨 鹿跑了 (${roll})`);
+      goToScene('outside');
+    }},
+    { label: '🪤 篝火陷阱（需火种）', action: () => { if (hasItem('🔥')) { addItem('🥩', '鹿肉'); eat(3); notify('🔥 陷阱成功！'); } else notify('❌ 没材料'); goToScene('outside'); }, condition: () => hasItem('🔥') },
+    { label: '🔙 放弃', action: () => goToScene('outside') },
+  ],
+};
+
+SCENES.back_cave = {
+  image: '🏕️',
+  text: `<p>回到洞穴，一阵安心。</p><p class="narrate">（可以休息、烤肉、整理）</p>`,
+  choices: [
+    { label: '🔥 生火休息（恢复 3 HP）', action: () => { if (hasItem('🔥')) { heal(3, '篝火休息'); } else notify('❌ 无火种'); goToScene('back_cave'); }},
+    { label: '🍖 烤肉（消耗肉，+5 饱食）', action: () => {
+      const meats = STATE.inventory.filter(i => i.name.includes('肉'));
+      if (meats.length > 0) { removeItem(meats[0].name); eat(5); notify('🍖 香喷喷的烤肉！'); } else notify('❌ 没肉');
+      goToScene('back_cave');
+    }},
+    { label: '🌙 睡到天亮', action: () => { heal(2, '安稳睡眠'); nextDay(); goToScene('outside'); }},
+    { label: '📜 研究兽皮地图', action: () => { notify('🗺️ 地图标了一个神秘位置...'); setFlag('map_examined', true); goToScene('back_cave'); }, condition: () => hasItem('📜') },
+    { label: '🚶 再次出门', action: () => goToScene('outside') },
+  ],
+};
+
+// ===================== 初始化 =====================
+document.addEventListener('DOMContentLoaded', () => {
+  goToScene('start');
+
+  document.addEventListener('keydown', (e) => {
+    if (STATE.gameOver) { if (e.key === 'r' || e.key === 'R') restartGame(); return; }
+    const key = parseInt(e.key);
+    if (key >= 1 && key <= 9) {
+      const btns = document.querySelectorAll('.choice-btn:not(:disabled)');
+      const btn = Array.from(btns).find(b => parseInt(b.dataset.key) === key);
+      if (btn) btn.click();
+    }
+  });
+
+  document.getElementById('restart-btn').addEventListener('click', restartGame);
+});
+</script>
+</body>
+</html>

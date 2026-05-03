@@ -57,12 +57,13 @@ Write-Host "[OK] 前端入口: $WEBUI" -ForegroundColor Green
 
 Write-Host ""
 
-# 5. 启动后端
-Write-Host "[1/2] 启动后端 Backend..." -ForegroundColor Yellow
+# 5. 启动后端（使用 tsx watch 实现热重载）
+Write-Host "[1/2] 启动后端 Backend (watch mode)..." -ForegroundColor Yellow
 $backendLog = "$ROOT\backend.log"
-$backendJob = Start-Process -FilePath "npx" -ArgumentList "tsx", "index.ts" -WorkingDirectory $BACKEND -WindowStyle Normal -PassThru -RedirectStandardOutput $backendLog -RedirectStandardError $backendLog
+$backendJob = Start-Process -FilePath "npx" -ArgumentList "tsx", "watch", "index.ts" -WorkingDirectory $BACKEND -WindowStyle Normal -PassThru -RedirectStandardOutput $backendLog -RedirectStandardError $backendLog
 Write-Host "      进程ID: $($backendJob.Id)" -ForegroundColor Gray
 Write-Host "      日志: $backendLog" -ForegroundColor Gray
+Write-Host "      热重载: 已启用 (tsx watch)" -ForegroundColor Green
 Start-Sleep -Seconds 3
 
 # 6. 启动前端

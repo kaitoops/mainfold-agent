@@ -174,7 +174,7 @@
       "id": "warm_1746152400000_cap_10",
       "type": "technical_pattern",
       "title": "【L3】Self-Scan 自主能力发现",
-      "summary": "有自动扫描能力(self-scan.ts + esa/self-scan.ts)：启动时扫描自身路径和路由结构，发现并注册可用能力。扫描范围：routes/、memory/、tools目录 + WarmIndex自认知条目。通过POST /api/self-scan触发手动扫描。",
+      "summary": "ls 已被调用 14 次。",
       "tags": [
         "capability-discovery",
         "l3-aux",
@@ -182,9 +182,9 @@
         "self-scan"
       ],
       "source": "builtin-capability",
-      "importance": 0.7,
+      "importance": 0.9,
       "created_at": "2026-05-02T02:20:00.000Z",
-      "updated_at": "2026-05-02T02:20:00.000Z"
+      "updated_at": "2026-05-03T08:47:33.531Z"
     },
     {
       "id": "warm_1746152400000_cap_11",
@@ -275,11 +275,11 @@
       "title": "[EB-007][L1] DeepSeek function calling 工具名必须用下划线",
       "summary": "DeepSeek 在 function calling 中自然地使用下划线命名（write_file/read_file）。工具定义名必须用下划线，不要用连字符，否则模型输出时找不到工具报 Unknown tool。在 endpointMap 中添加下划线别名作为双重保障。影响所有工具定义。",
       "tags": [
+        "deepseek",
         "eb-007",
         "fix",
         "function-calling",
-        "tool-naming",
-        "deepseek"
+        "tool-naming"
       ],
       "source": "workbuddy-fix-review",
       "importance": 0.88,
@@ -292,11 +292,11 @@
       "title": "[EB-007][L2] write_file 三阶段排查：参数名→endpointMap→定义名",
       "summary": "write-file 工具调用持续失败分三阶段修复：(1) 参数 file→filePath 归一化 (2) endpointMap 添加 write_file 别名 (3) 定义名改为 write_file。与 read_file(L184 预检查双名)对比，write_file 无同级防护是根本原因。",
       "tags": [
+        "chat-ts",
         "eb-007",
         "fix",
         "function-calling",
-        "write-file",
-        "chat-ts"
+        "write-file"
       ],
       "source": "workbuddy-fix-review",
       "importance": 0.72,
@@ -309,15 +309,157 @@
       "title": "频用工具: write-file",
       "summary": "write-file 已被调用 6 次。",
       "tags": [
+        "auto_detected",
         "tool_pattern",
-        "write-file",
-        "auto_detected"
+        "write-file"
       ],
       "source": "memory-reviewer",
-      "importance": 0.7700000000000002,
+      "importance": 0.9,
       "created_at": "2026-05-02T14:55:19.857Z",
-      "updated_at": "2026-05-02T18:48:47.223Z"
+      "updated_at": "2026-05-03T04:09:39.129Z"
+    },
+    {
+      "id": "warm_1777794077676_2lcbvr",
+      "type": "error_lesson",
+      "title": "【错误模式】exec 失败 4 次",
+      "summary": "exec 在最近操作中失败 4 次。示例: exit=1 stdout=[eval].ts(1,1): error TS2584: Cannot find name 'console'. Do you need to change your t",
+      "tags": [
+        "auto_detected_error",
+        "error_lesson",
+        "exec"
+      ],
+      "source": "exec",
+      "importance": 0.6000000000000001,
+      "created_at": "2026-05-03T07:41:17.676Z",
+      "updated_at": "2026-05-03T07:41:17.676Z"
+    },
+    {
+      "id": "wb_1777799627750_5asqlo",
+      "type": "technical_pattern",
+      "title": "PowerShell WMI 查询卡死",
+      "summary": "{\"id\":\"TECH-001\",\"category\":\"system-debug\",\"severity\":\"high\",\"rootCause\":\"Windows 10 WMI 模块初始化在某些进程异常状态下会卡死\",\"solution\":\"用 tasklist（Windows 原生命令）代替所有 WMI 查询\",\"prevention\":\"在 RULES.md 中添加 PROC-002 规则\",\"context\":{\"trigger\":\"使用 Get-CimInstance、Get-WmiObject、wmic 命令\",\"environment\":\"Windows 10\",\"symptoms\":[\"命令无限挂起\",\"进程无法终止\"]}}",
+      "tags": [
+        "powershell",
+        "process-management",
+        "windows",
+        "wmi"
+      ],
+      "source": "workbuddy:tech-debug.json",
+      "importance": 0.8,
+      "created_at": "2026-05-03T09:13:47.750Z",
+      "updated_at": "2026-05-03T09:13:47.750Z"
+    },
+    {
+      "id": "wb_1777799627752_85ct4k",
+      "type": "technical_pattern",
+      "title": "Stop-Process 误杀所有同名进程",
+      "summary": "{\"id\":\"TECH-002\",\"category\":\"system-debug\",\"severity\":\"critical\",\"rootCause\":\"Stop-Process -Force 会杀掉所有同名进程，包括 WorkBuddy 自身的进程\",\"solution\":\"用 taskkill /PID <具体PID> /F 精确杀进程\",\"prevention\":\"在 RULES.md 中添加 PROC-001 规则\",\"context\":{\"trigger\":\"使用 Stop-Process -Force 不带过滤器\",\"environment\":\"Windows 10, 多服务共享进程名\",\"symptoms\":[\"所有 Node 进程被杀\",\"WorkBuddy 后端不可用\"]}}",
+      "tags": [
+        "powershell",
+        "process-management",
+        "safety"
+      ],
+      "source": "workbuddy:tech-debug.json",
+      "importance": 0.9,
+      "created_at": "2026-05-03T09:13:47.752Z",
+      "updated_at": "2026-05-03T09:13:47.752Z"
+    },
+    {
+      "id": "wb_1777799627752_5wejx3",
+      "type": "technical_pattern",
+      "title": "React TDZ 错误导致 WebUI 空白页",
+      "summary": "{\"id\":\"TECH-003\",\"category\":\"frontend-debug\",\"severity\":\"high\",\"rootCause\":\"useEffect 依赖数组引用了尚未声明的变量（Temporal Dead Zone）\",\"solution\":\"依赖数组改为引用已声明的变量，useEffect 内部用 find() 动态查找\",\"prevention\":\"在 RULES.md 中添加 PROC-003 规则\",\"context\":{\"trigger\":\"修改 React 组件中的 useEffect 依赖数组\",\"environment\":\"React 18+, TypeScript\",\"symptoms\":[\"WebUI 打开后空白\",\"控制台报 Cannot access 'xxx' before initialization\"]}}",
+      "tags": [
+        "frontend",
+        "react",
+        "tdz",
+        "typescript",
+        "useeffect"
+      ],
+      "source": "workbuddy:tech-debug.json",
+      "importance": 0.7,
+      "created_at": "2026-05-03T09:13:47.752Z",
+      "updated_at": "2026-05-03T09:13:47.752Z"
+    },
+    {
+      "id": "wb_1777799627752_7kdeka",
+      "type": "technical_pattern",
+      "title": "SSE 流式响应格式差异",
+      "summary": "{\"id\":\"TECH-004\",\"category\":\"api-debug\",\"severity\":\"medium\",\"rootCause\":\"不同 AI 模型的 SSE 响应格式不同（choice.delta vs choice.message）\",\"solution\":\"兼容多种格式：deltaMsg = delta.message ?? delta.delta ?? delta\",\"prevention\":\"在 API 集成时先测试响应格式\",\"context\":{\"trigger\":\"处理不同 AI 模型的 SSE 流式响应\",\"environment\":\"DeepSeek V3, GPT-4\",\"symptoms\":[\"内容解析错误\",\"delta 字段不存在\"]}}",
+      "tags": [
+        "api",
+        "deepseek",
+        "openai",
+        "sse",
+        "streaming"
+      ],
+      "source": "workbuddy:tech-debug.json",
+      "importance": 0.6,
+      "created_at": "2026-05-03T09:13:47.752Z",
+      "updated_at": "2026-05-03T09:13:47.752Z"
+    },
+    {
+      "id": "wb_1777799627752_c3vne7",
+      "type": "technical_pattern",
+      "title": "TypeScript 模块系统混用",
+      "summary": "{\"id\":\"TECH-005\",\"category\":\"build-debug\",\"severity\":\"medium\",\"rootCause\":\"源代码使用 ES Module 语法，但 TypeScript 配置为 CommonJS 输出\",\"solution\":\"移除所有 import.meta 和 fileURLToPath 调用，改用 CommonJS 的 __dirname\",\"prevention\":\"配置 ESLint 规则、Pre-commit hook、TypeScript 严格模式\",\"context\":{\"trigger\":\"ES Module 和 CommonJS 混用\",\"environment\":\"TypeScript, Node.js\",\"symptoms\":[\"编译错误\",\"运行时错误 Identifier '__filename' has already been declared\"]}}",
+      "tags": [
+        "build",
+        "commonjs",
+        "esm",
+        "modules",
+        "typescript"
+      ],
+      "source": "workbuddy:tech-debug.json",
+      "importance": 0.5,
+      "created_at": "2026-05-03T09:13:47.752Z",
+      "updated_at": "2026-05-03T09:13:47.752Z"
+    },
+    {
+      "id": "wb_1777799627752_ss7kzu",
+      "type": "technical_pattern",
+      "title": "PowerShell Start-Process 参数传递问题",
+      "summary": "{\"id\":\"TECH-006\",\"category\":\"system-debug\",\"severity\":\"medium\",\"rootCause\":\"PowerShell Start-Process 的 ArgumentList 参数解析方式与 cmd.exe 不同\",\"solution\":\"使用 cmd.exe /c 方式启动，或记录正确的 PowerShell 语法\",\"prevention\":\"在 experiences/ 中记录 PowerShell 启动的正确用法\",\"context\":{\"trigger\":\"使用 Start-Process 启动 tsx watch 等需要参数的命令\",\"environment\":\"Windows 10, PowerShell\",\"symptoms\":[\"后端启动但没有热重载功能\",\"watch 参数未正确传递\"]}}",
+      "tags": [
+        "hot-reload",
+        "powershell",
+        "start-process",
+        "tsx",
+        "windows"
+      ],
+      "source": "workbuddy:tech-debug.json",
+      "importance": 0.6,
+      "created_at": "2026-05-03T09:13:47.752Z",
+      "updated_at": "2026-05-03T09:13:47.752Z"
+    },
+    {
+      "id": "wb_1777799627752_40l3um",
+      "type": "repair_evaluation",
+      "title": "修复: 工具调用深度限制从10改为50",
+      "summary": "{\"repairId\":\"REPAIR-001\",\"target\":\"工具调用深度限制从10改为50\",\"attempt\":{\"number\":1,\"firstTimeSuccess\":true,\"deadCycles\":0,\"invalidReads\":0},\"changes\":{\"filesModified\":[\"G:\\\\Orikarma-mainfold-navigation-mempalace-agent\\\\src\\\\backend\\\\routes\\\\chat.ts\"],\"linesChanged\":1,\"tokenConsumed\":\"低\"},\"verification\":{\"problemReproduced\":false,\"fixVerified\":true,\"regression\":false,\"userSatisfied\":true},\"frictionPoints\":[],\"lessonsLearned\":\"直接修改常量值即可，简单有效\"}",
+      "tags": [
+        "repair",
+        "repair_evaluation"
+      ],
+      "source": "workbuddy:repair-evaluation.json",
+      "importance": 0.6,
+      "created_at": "2026-05-03T09:13:47.752Z",
+      "updated_at": "2026-05-03T09:13:47.752Z"
+    },
+    {
+      "id": "warm_1777799687584_w62ped",
+      "type": "observation_metric",
+      "title": "修复汇总",
+      "summary": "共 3 次修复，成功率 100%，平均尝试 2 次。常见摩擦点: 死循环(1), 无效操作(1)",
+      "tags": [
+        "auto_detected",
+        "repair_summary"
+      ],
+      "source": "memory-reviewer",
+      "importance": 0.7,
+      "created_at": "2026-05-03T09:14:47.584Z",
+      "updated_at": "2026-05-03T09:14:47.584Z"
     }
   ],
-  "lastPruned": null
+  "lastPruned": "2026-05-03T09:13:47.752Z"
 }

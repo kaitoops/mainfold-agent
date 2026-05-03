@@ -50,6 +50,26 @@ export interface ColdMemoryStats {
   tool_breakdown: Record<string, number>;
 }
 
+// ── Daily Log 类型（WorkBuddy 移植） ──
+
+export interface DailyLog {
+  id: string;
+  date: string;           // YYYY-MM-DD
+  session_id: string | null;
+  turn_count: number;
+  content: string;        // 日志内容（Markdown）
+  summary: string | null; // 摘要（自动提取）
+  tags: string | null;    // 标签（JSON 数组）
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DailyLogStats {
+  total_logs: number;
+  date_range: { earliest: string | null; latest: string | null };
+  avg_turns_per_day: number;
+}
+
 // ── ColdMemory ──
 
 export class ColdMemory {
@@ -90,11 +110,26 @@ export class ColdMemory {
         created_at TEXT DEFAULT (datetime('now'))
       );
 
+      -- Daily Log 表（WorkBuddy 移植）
+      CREATE TABLE IF NOT EXISTS daily_logs (
+        id TEXT PRIMARY KEY,
+        date TEXT NOT NULL,
+        session_id TEXT,
+        turn_count INTEGER DEFAULT 0,
+        content TEXT NOT NULL,
+        summary TEXT,
+        tags TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+
       CREATE INDEX IF NOT EXISTS idx_conversations_created ON conversation_logs(created_at);
       CREATE INDEX IF NOT EXISTS idx_conversations_session ON conversation_logs(session_id);
       CREATE INDEX IF NOT EXISTS idx_toolops_created ON tool_operations(created_at);
       CREATE INDEX IF NOT EXISTS idx_toolops_name ON tool_operations(tool_name);
       CREATE INDEX IF NOT EXISTS idx_toolops_session ON tool_operations(session_id);
+      CREATE INDEX IF NOT EXISTS idx_daily_logs_date ON daily_logs(date);
+      CREATE INDEX IF NOT EXISTS idx_daily_logs_session ON daily_logs(session_id);
     `);
   }
 
@@ -208,6 +243,80 @@ export class ColdMemory {
     return this.db.prepare(
       'SELECT * FROM tool_operations WHERE tool_name LIKE ? OR arguments_summary LIKE ? OR result_summary LIKE ? ORDER BY created_at DESC LIMIT ?'
     ).all(term, term, term, limit) as ToolOperationLog[];
+  }
+
+  // ── Daily Log 操作（WorkBuddy 移植） ──
+
+  /**
+   * 记录 Daily Log。
+   * @returns 记录 ID
+   */
+  logDaily(entry: Omit<DailyLog, 'id' | 'created_at' | 'updated_at'>): string {
+    const id = `daily_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const now = new Date().toISOString();
+    this.db.prepare(`
+      INSERT INTO daily_logs (id, date, session_id, turn_count, content, summary, tags, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, entry.date, entry.session_id, entry.turn_count, entry.content, entry.summary, entry.tags, now, now);
+    return id;
+  }
+
+  /**
+   * 查询指定日期的 Daily Log。
+   */
+  queryDailyLogs(date: string, limit = 10): DailyLog[] {
+    return this.db.prepare(
+      'SELECT * FROM daily_logs WHERE date = ? ORDER BY created_at DESC LIMIT ?'
+    ).all(date, limit) as DailyLog[];
+  }
+
+  /**
+   * 查询日期范围内的 Daily Log。
+   */
+  queryDailyLogsByRange(startDate: string, endDate: string): DailyLog[] {
+    return this.db.prepare(
+      'SELECT * FROM daily_logs WHERE date >= ? AND date <= ? ORDER BY date DESC, created_at DESC'
+    ).all(startDate, endDate) as DailyLog[];
+  }
+
+  /**
+   * 更新 Daily Log。
+   */
+  updateDailyLog(id: string, updates: Partial<Pick<DailyLog, 'content' | 'summary' | 'tags' | 'turn_count'>>): boolean {
+    const existing = this.db.prepare('SELECT id FROM daily_logs WHERE id = ?').get(id);
+    if (!existing) return false;
+
+    const fields: string[] = [];
+    const values: any[] = [];
+
+    if (updates.content !== undefined) { fields.push('content = ?'); values.push(updates.content); }
+    if (updates.summary !== undefined) { fields.push('summary = ?'); values.push(updates.summary); }
+    if (updates.tags !== undefined) { fields.push('tags = ?'); values.push(updates.tags); }
+    if (updates.turn_count !== undefined) { fields.push('turn_count = ?'); values.push(updates.turn_count); }
+
+    if (fields.length === 0) return false;
+
+    fields.push('updated_at = ?');
+    values.push(new Date().toISOString());
+    values.push(id);
+
+    this.db.prepare(`UPDATE daily_logs SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+    return true;
+  }
+
+  /**
+   * 获取 Daily Log 统计信息。
+   */
+  getDailyLogStats(): DailyLogStats {
+    const totalLogs = (this.db.prepare('SELECT COUNT(*) as n FROM daily_logs').get() as any).n;
+    const dateRange = this.db.prepare('SELECT MIN(date) as earliest, MAX(date) as latest FROM daily_logs').get() as any;
+    const avgTurns = (this.db.prepare('SELECT AVG(turn_count) as avg FROM daily_logs').get() as any).avg ?? 0;
+
+    return {
+      total_logs: totalLogs,
+      date_range: { earliest: dateRange?.earliest ?? null, latest: dateRange?.latest ?? null },
+      avg_turns_per_day: Math.round(avgTurns * 10) / 10,
+    };
   }
 
   // ── Stats ──

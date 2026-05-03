@@ -1,33 +1,31 @@
 /**
- * mainfold-agent WebUI — ChatPage
+ * mainfold-agent WebUI — ChatPage（重构版）
  *
- * 基于 Hermes ChatPage.tsx 重写（用户原创代码）：
- *   改动1: STORAGE_KEY → 'mainfold_sessions'
- *   改动2: 默认模型 → 'deepseek-v4-flash'
- *   改动3: 项目名 → mainfold-agent
- *   改动4: 注入轮询对接新 /api/inject/pending
+ * 基于 original ChatPage.tsx 拆分：
+ *   改动1: SessionSidebar → components/SessionSidebar.tsx
+ *   改动2: MessageList → components/MessageList.tsx
+ *   改动3: InputBar → components/InputBar.tsx
+ *   改动4: TaskStatusPanel → components/TaskStatusPanel.tsx
+ *   改动5: AutoConfirmStatus → 移入 TaskStatusPanel
+ *   改动6: CollapsibleContent/ReasoningBlock/TokenBar → 移入 MessageList
  *
- * 保留的原始逻辑（经审查确认正确）：
+ * 保留的原始逻辑：
  *   - 会话多标签管理 + localStorage 持久化
  *   - DeepSeek R1 reasoning_content 可折叠展示
  *   - WorkBuddy 注入轮询 + 确认消费
  *   - Token 用量进度条（绿→黄→红渐变）
  *   - 消息复制功能
+ *   - 图片上传
+ *   - Agent 实时状态轮询
+ *   - 任务状态轮询
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import {
-  Send,
-  Plus,
-  Copy,
-  Check,
-  ChevronDown,
-  ChevronRight,
-  Zap,
-  Trash2,
-  Image,
-  X,
-} from 'lucide-react';
+
+import SessionSidebar from '../components/SessionSidebar';
+import MessageList from '../components/MessageList';
+import InputBar from '../components/InputBar';
+import TaskStatusPanel from '../components/TaskStatusPanel';
 
 // ── 常量 ──
 
@@ -50,6 +48,8 @@ interface Message {
   _streaming?: boolean;
   /** 工具调用深度 */
   tool_call_depth?: number;
+  /** 消息来源：'user' | 'workbuddy' | 'system' */
+  source?: 'user' | 'workbuddy' | 'system';
 }
 
 interface Session {
@@ -62,6 +62,7 @@ interface Session {
 
 interface InjectMessage {
   id: string;
+  taskId: string | null;
   content: string;
   source: string;
   timestamp: string;
@@ -79,8 +80,6 @@ interface ModelsResponse {
   providers: Record<string, { models: ModelInfo[] }>;
 }
 
-// ── Agent 实时状态类型 ──
-
 interface AgentStatusEntry {
   phase: string;
   detail: string;
@@ -97,14 +96,21 @@ interface AgentStatus {
   elapsed: number;
 }
 
-const AGENT_PHASE_CONFIG: Record<string, { label: string; color: string; icon: string }> = {
-  idle:       { label: '等待中',   color: 'bg-gray-500',  icon: '○' },
-  api:        { label: '调用 AI',  color: 'bg-blue-400',  icon: '◉' },
-  tool:       { label: '执行操作', color: 'bg-yellow-400', icon: '▶' },
-  'tool-result': { label: '操作完成', color: 'bg-green-400', icon: '✓' },
-  refactor:   { label: '优化输出', color: 'bg-purple-400', icon: '◎' },
-  finalizing: { label: '生成回复', color: 'bg-indigo-400', icon: '◆' },
-};
+interface Task {
+  id: string;
+  injectId: string;
+  content: string;
+  source: string;
+  status: 'pending' | 'received' | 'processing' | 'completed' | 'failed' | 'cancelled';
+  createdAt: string;
+  updatedAt: string;
+  receivedAt: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  result: string | null;
+  error: string | null;
+  metadata: Record<string, any>;
+}
 
 // ── 辅助函数 ──
 
@@ -125,59 +131,29 @@ function saveSessions(sessions: Session[]): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
 }
 
-function formatTokenCount(tokens: number): string {
-  if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}K`;
-  return String(tokens);
+async function loadSessionsFromBackend(): Promise<Session[]> {
+  try {
+    const res = await fetch('/api/sessions');
+    if (res.ok) {
+      const data = await res.json();
+      return data.sessions ?? [];
+    }
+  } catch {
+    // 静默
+  }
+  return [];
 }
 
-// ── 推理折叠块 ──
-
-function ReasoningBlock({ content }: { content: string }) {
-  const [expanded, setExpanded] = useState(false);
-
-  return (
-    <div className="reasoning-block">
-      <button
-        className="reasoning-toggle"
-        onClick={() => setExpanded(!expanded)}
-      >
-        {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        <span>推理过程</span>
-      </button>
-      {expanded && (
-        <div className="text-gray-400 text-xs whitespace-pre-wrap mt-1">
-          {content}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Token 进度条 ──
-
-function TokenBar({ tokens }: { tokens: number }) {
-  // 假设128K上下文窗口
-  const maxTokens = 128000;
-  const ratio = Math.min(tokens / maxTokens, 1);
-
-  const color =
-    ratio < 0.5
-      ? 'bg-green-500'
-      : ratio < 0.8
-        ? 'bg-yellow-500'
-        : 'bg-red-500';
-
-  return (
-    <div className="flex items-center gap-2 text-xs text-gray-500">
-      <span>{formatTokenCount(tokens)} tokens</span>
-      <div className="w-20 h-1.5 bg-gray-800 rounded-full overflow-hidden">
-        <div
-          className={`h-full ${color} transition-all duration-300`}
-          style={{ width: `${ratio * 100}%` }}
-        />
-      </div>
-    </div>
-  );
+async function saveSessionsToBackend(sessions: Session[]): Promise<void> {
+  try {
+    await fetch('/api/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessions }),
+    });
+  } catch {
+    // 静默
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -185,38 +161,69 @@ function TokenBar({ tokens }: { tokens: number }) {
 // ══════════════════════════════════════════════════════════════════
 
 export default function ChatPage() {
+  // ── 会话状态 ──
   const [sessions, setSessions] = useState<Session[]>(loadSessions);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(
     () => sessions[0]?.id ?? null,
   );
+
+  // ── 输入状态 ──
   const [input, setInput] = useState('');
+  const [uploadedImages, setUploadedImages] = useState<string[]>([]);
+
+  // ── 加载/轮询状态 ──
   const [isLoading, setIsLoading] = useState(false);
   const [injectMessages, setInjectMessages] = useState<InjectMessage[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
   const [agentPollActive, setAgentPollActive] = useState(false);
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
-  const [uploadedImages, setUploadedImages] = useState<string[]>([]);
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
+  const [activeTasks, setActiveTasks] = useState<Task[]>([]);
 
+  // ── Refs ──
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // ── 会话持久化 ──
+  // ── 当前活跃会话 ──
+  const activeSession = sessions.find((s) => s.id === activeSessionId);
 
+  // ══════════════════════════════════════════════════════════════
+  // Effects
+  // ══════════════════════════════════════════════════════════════
+
+  // 持久化
   useEffect(() => {
     saveSessions(sessions);
+    saveSessionsToBackend(sessions);
   }, [sessions]);
 
-  // ── 自动滚动 ──
+  // 启动时从后端加载
+  useEffect(() => {
+    loadSessionsFromBackend().then((backendSessions) => {
+      if (backendSessions.length > 0) {
+        setSessions((prev) => {
+          const merged = new Map<string, Session>();
+          for (const s of backendSessions) merged.set(s.id, s);
+          for (const s of prev) {
+            const existing = merged.get(s.id);
+            if (!existing || s.messages.length > existing.messages.length) {
+              merged.set(s.id, s);
+            }
+          }
+          return Array.from(merged.values());
+        });
+      }
+    });
+  }, []);
 
+  // 自动滚动
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [sessions, activeSessionId]);
 
-  // ── 获取可用模型 ──
-
+  // 获取模型列表
   useEffect(() => {
     const fetchModels = async () => {
       try {
@@ -236,8 +243,7 @@ export default function ChatPage() {
     fetchModels();
   }, []);
 
-  // ── 注入轮询 ──
-
+  // 注入轮询
   useEffect(() => {
     const poll = async () => {
       try {
@@ -245,14 +251,201 @@ export default function ChatPage() {
         if (res.ok) {
           const data = await res.json();
           if (data.pending?.length > 0) {
-            setInjectMessages((prev) => {
-              // 去重合并
-              const existingIds = new Set(prev.map((m) => m.id));
-              const newMsgs = data.pending.filter(
-                (m: InjectMessage) => !existingIds.has(m.id),
-              );
-              return [...prev, ...newMsgs];
-            });
+            const statusRes = await fetch('/api/inject/auto-confirm-status');
+            const statusData = await statusRes.json();
+
+            if (statusData.enabled && statusData.remainingCount > 0) {
+              // 自动确认模式：静默消费
+              for (const msg of data.pending) {
+                await fetch(`/api/inject/pending/${msg.id}`, { method: 'DELETE' });
+                if (msg.taskId) {
+                  await fetch(`/api/tasks/${msg.taskId}/status`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: 'received' }),
+                  });
+                }
+                setSessions((prevSessions) => {
+                  let currentActive = prevSessions.find((s) => s.id === activeSessionId);
+                  if (!currentActive) {
+                    const newSession: Session = {
+                      id: generateId(),
+                      title: '自动创建会话',
+                      messages: [],
+                      model: DEFAULT_MODEL,
+                      createdAt: new Date().toISOString(),
+                    };
+                    prevSessions = [newSession, ...prevSessions];
+                    currentActive = newSession;
+                    setTimeout(() => setActiveSessionId(newSession.id), 0);
+                  }
+                  const injectContent = msg.content;
+                  setTimeout(async () => {
+                    setIsLoading(true);
+                    const history = (currentActive!.messages ?? []).map((m) => ({
+                      role: m.role,
+                      content: m.content,
+                    }));
+                    try {
+                      const chatRes = await fetch('/api/chat', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          message: injectContent,
+                          model: currentActive!.model ?? DEFAULT_MODEL,
+                          conversation_history: history,
+                          session_id: currentActive!.id,
+                          stream: true,
+                        }),
+                      });
+                      if (!chatRes.ok) throw new Error(`API error: ${chatRes.status}`);
+                      const assistantMsgId = generateId();
+                      const reader = chatRes.body!.getReader();
+                      const decoder = new TextDecoder();
+                      let sseBuffer = '';
+                      let streamContent = '';
+                      let streamReasoning = '';
+                      let streamTokenUsed = 0;
+                      let streamTimestamp = '';
+                      let streamDepth = 0;
+
+                      setSessions((prev) =>
+                        prev.map((s) =>
+                          s.id === currentActive!.id
+                            ? {
+                                ...s,
+                                messages: [
+                                  ...s.messages,
+                                  {
+                                    id: assistantMsgId,
+                                    role: 'assistant' as const,
+                                    content: '',
+                                    timestamp: new Date().toISOString(),
+                                    senderModel: currentActive!.model ?? DEFAULT_MODEL,
+                                    _streaming: true,
+                                  },
+                                ],
+                              }
+                            : s,
+                        ),
+                      );
+
+                      while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        sseBuffer += decoder.decode(value, { stream: true });
+                        const lines = sseBuffer.split('\n');
+                        sseBuffer = lines.pop() || '';
+                        let currentEvent = '';
+                        for (const line of lines) {
+                          if (line.startsWith('event: ')) {
+                            currentEvent = line.slice(7).trim();
+                            continue;
+                          }
+                          if (line.startsWith('data: ')) {
+                            const jsonStr = line.slice(6).trim();
+                            try {
+                              const evt = JSON.parse(jsonStr);
+                              const evtType = currentEvent || (evt.token_used !== undefined ? 'done' : evt.content && evt.accumulated !== undefined ? 'token' : 'unknown');
+                              currentEvent = '';
+                              if (evtType === 'token' || (evt.content && evt.accumulated !== undefined)) {
+                                streamContent = evt.accumulated;
+                                setSessions((prev) =>
+                                  prev.map((s) =>
+                                    s.id === currentActive!.id
+                                      ? {
+                                          ...s,
+                                          messages: s.messages.map((m) =>
+                                            m.id === assistantMsgId
+                                              ? { ...m, content: streamContent, _streaming: true }
+                                              : m,
+                                          ),
+                                        }
+                                      : s,
+                                  ),
+                                );
+                              } else if (evtType === 'reasoning') {
+                                streamReasoning = evt.accumulated || '';
+                                setSessions((prev) =>
+                                  prev.map((s) =>
+                                    s.id === currentActive!.id
+                                      ? {
+                                          ...s,
+                                          messages: s.messages.map((m) =>
+                                            m.id === assistantMsgId
+                                              ? { ...m, reasoning_content: streamReasoning }
+                                              : m,
+                                          ),
+                                        }
+                                      : s,
+                                  ),
+                                );
+                              } else if (evtType === 'tool_call') {
+                                streamDepth = evt.depth || 0;
+                                setSessions((prev) =>
+                                  prev.map((s) =>
+                                    s.id === currentActive!.id
+                                      ? {
+                                          ...s,
+                                          messages: s.messages.map((m) =>
+                                            m.id === assistantMsgId
+                                              ? { ...m, tool_call_depth: streamDepth }
+                                              : m,
+                                          ),
+                                        }
+                                      : s,
+                                  ),
+                                );
+                              } else if (evtType === 'done') {
+                                streamTokenUsed = evt.token_used || 0;
+                                streamTimestamp = evt.timestamp || new Date().toISOString();
+                                setSessions((prev) =>
+                                  prev.map((s) =>
+                                    s.id === currentActive!.id
+                                      ? {
+                                          ...s,
+                                          messages: s.messages.map((m) =>
+                                            m.id === assistantMsgId
+                                              ? {
+                                                  ...m,
+                                                  content: streamContent || m.content,
+                                                  reasoning_content: streamReasoning || m.reasoning_content,
+                                                  token_used: streamTokenUsed,
+                                                  timestamp: streamTimestamp,
+                                                  _streaming: false,
+                                                  tool_call_depth: streamDepth,
+                                                }
+                                              : m,
+                                          ),
+                                        }
+                                      : s,
+                                  ),
+                                );
+                              }
+                            } catch {
+                              // 忽略
+                            }
+                          }
+                        }
+                      }
+                    } catch (err) {
+                      console.error('[AutoConfirm] SSE error:', err);
+                    } finally {
+                      setIsLoading(false);
+                    }
+                  }, 0);
+                  return prevSessions;
+                });
+              }
+            } else {
+              setInjectMessages((prev) => {
+                const existingIds = new Set(prev.map((m) => m.id));
+                const newMsgs = data.pending.filter(
+                  (m: InjectMessage) => !existingIds.has(m.id),
+                );
+                return [...prev, ...newMsgs];
+              });
+            }
           }
         }
       } catch {
@@ -261,19 +454,21 @@ export default function ChatPage() {
     };
 
     const id = setInterval(poll, INJECT_POLL_INTERVAL);
-    return () => clearInterval(id);
-  }, []);
+    const handleInjectPoll = () => poll();
+    window.addEventListener('inject-poll', handleInjectPoll);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener('inject-poll', handleInjectPoll);
+    };
+  }, [activeSessionId]);
 
-  // ── Agent 状态轮询（仅 loading 时启动，1 秒间隔）──
-
+  // Agent 状态轮询
   useEffect(() => {
     if (!isLoading) {
       setAgentPollActive(false);
       return;
     }
-
     setAgentPollActive(true);
-
     const poll = async () => {
       try {
         const res = await fetch('/api/agent/status');
@@ -285,8 +480,7 @@ export default function ChatPage() {
         // 静默
       }
     };
-
-    poll(); // 立即执行第一次
+    poll();
     const id = setInterval(poll, 1000);
     return () => {
       clearInterval(id);
@@ -294,11 +488,27 @@ export default function ChatPage() {
     };
   }, [isLoading]);
 
-  // ── 当前会话 ──
+  // 任务状态轮询
+  useEffect(() => {
+    const pollTasks = async () => {
+      try {
+        const res = await fetch('/api/tasks');
+        if (res.ok) {
+          const data = await res.json();
+          setActiveTasks(data.tasks || []);
+        }
+      } catch {
+        // 静默
+      }
+    };
+    pollTasks();
+    const id = setInterval(pollTasks, 5000);
+    return () => clearInterval(id);
+  }, []);
 
-  const activeSession = sessions.find((s) => s.id === activeSessionId);
-
-  // ── 新建会话 ──
+  // ══════════════════════════════════════════════════════════════
+  // Handlers
+  // ══════════════════════════════════════════════════════════════
 
   const createSession = useCallback(() => {
     const newSession: Session = {
@@ -313,57 +523,132 @@ export default function ChatPage() {
     inputRef.current?.focus();
   }, []);
 
-  // ── 删除会话 ──
-
   const deleteSession = useCallback(
     (sessionId: string) => {
       setSessions((prev) => prev.filter((s) => s.id !== sessionId));
       if (activeSessionId === sessionId) {
-        setActiveSessionId(sessions.find((s) => s.id !== sessionId)?.id ?? null);
+        const next = sessions.find((s) => s.id !== sessionId);
+        setActiveSessionId(next?.id ?? null);
       }
     },
     [activeSessionId, sessions],
   );
 
-  // ── 切换模型 ──
-
-  const switchModel = useCallback((sessionId: string, modelId: string) => {
-    setSessions((prev) =>
-      prev.map((s) =>
-        s.id === sessionId ? { ...s, model: modelId } : s,
-      ),
-    );
-    setModelDropdownOpen(false);
+  const copyMessage = useCallback(async (content: string, msgId: string) => {
+    await navigator.clipboard.writeText(content);
+    setCopiedId(msgId);
+    setTimeout(() => setCopiedId(null), 2000);
   }, []);
 
-  // ── 图片上传 ──
+  const confirmInject = useCallback(async (msg: InjectMessage) => {
+    try {
+      await fetch(`/api/inject/pending/${msg.id}`, { method: 'DELETE' });
+      setInjectMessages((prev) => prev.filter((m) => m.id !== msg.id));
 
-  const handleImageSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
-    Array.from(files).forEach((file) => {
-      if (!file.type.startsWith('image/')) return;
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const dataUrl = event.target?.result as string;
-        setUploadedImages((prev) => [...prev, dataUrl]);
+      if (msg.taskId) {
+        await fetch(`/api/tasks/${msg.taskId}/status`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'received' }),
+        });
+      }
+
+      if (!activeSession) return;
+
+      const injectContent = `[外部注入 · ${msg.source}] ${msg.content}`;
+      const injectMsg: Message = {
+        id: generateId(),
+        role: 'user',
+        content: injectContent,
+        timestamp: new Date().toISOString(),
       };
-      reader.readAsDataURL(file);
-    });
-    // 重置 input 以允许重复选择同一文件
-    e.target.value = '';
-  }, []);
+      const sessionId = activeSession.id;
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === sessionId
+            ? { ...s, messages: [...s.messages, injectMsg] }
+            : s,
+        ),
+      );
 
-  const removeImage = useCallback((index: number) => {
-    setUploadedImages((prev) => prev.filter((_, i) => i !== index));
-  }, []);
+      setIsLoading(true);
+      const currentSession = sessions.find((s) => s.id === sessionId);
+      const history = (currentSession?.messages ?? []).map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
 
-  // ── 发送消息 ──
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: injectContent,
+          model: currentSession?.model ?? DEFAULT_MODEL,
+          conversation_history: history,
+          session_id: sessionId,
+        }),
+      });
+
+      if (!res.ok) throw new Error(`API error: ${res.status}`);
+
+      const data = await res.json();
+      const assistantMsgWithModel: Message = {
+        id: generateId(),
+        role: 'assistant',
+        content: data.content,
+        reasoning_content: data.reasoning_content,
+        timestamp: data.timestamp,
+        token_used: data.token_used,
+        senderModel: currentSession?.model ?? DEFAULT_MODEL,
+      };
+
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === sessionId
+            ? { ...s, messages: [...s.messages, assistantMsgWithModel] }
+            : s,
+        ),
+      );
+    } catch (err) {
+      const errorMsg: Message = {
+        id: generateId(),
+        role: 'assistant',
+        content: `[错误] ${(err as Error).message}`,
+        timestamp: new Date().toISOString(),
+      };
+      if (activeSession) {
+        setSessions((prev) =>
+          prev.map((s) =>
+            s.id === activeSession.id
+              ? { ...s, messages: [...s.messages, errorMsg] }
+              : s,
+          ),
+        );
+      }
+    } finally {
+      setIsLoading(false);
+      if (msg.taskId) {
+        try {
+          // 捕获 AI 输出作为任务结果
+          const taskResult = streamContent ? streamContent.slice(0, 500) : '任务已完成';
+          await fetch(`/api/tasks/${msg.taskId}/status`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              status: 'completed',
+              result: taskResult,
+            }),
+          });
+        } catch {
+          // 静默
+        }
+      }
+    }
+  }, [activeSession, sessions]);
 
   const sendMessage = useCallback(async () => {
     if (!input.trim() || isLoading) return;
 
-    // 自动创建会话
     let session = activeSession;
     if (!session) {
       const newSession: Session = {
@@ -390,7 +675,6 @@ export default function ChatPage() {
       images: hasImages ? images : undefined,
     };
 
-    // 添加用户消息
     const sessionId = session.id;
     setSessions((prev) =>
       prev.map((s) =>
@@ -408,7 +692,6 @@ export default function ChatPage() {
     setIsLoading(true);
 
     try {
-      // 构建对话历史（多模态兼容）
       const currentSession = sessions.find((s) => s.id === sessionId);
       const history = (currentSession?.messages ?? []).map((m) => {
         if (m.role === 'user' && m.images && m.images.length > 0) {
@@ -422,7 +705,6 @@ export default function ChatPage() {
         return { role: m.role, content: m.content };
       });
 
-      // 构建当前消息 content
       let messagePayload: string | Record<string, unknown>[];
       if (hasImages) {
         const parts: Record<string, unknown>[] = [];
@@ -447,9 +729,7 @@ export default function ChatPage() {
         }),
       });
 
-      if (!res.ok) {
-        throw new Error(`API error: ${res.status}`);
-      }
+      if (!res.ok) throw new Error(`API error: ${res.status}`);
 
       // ── SSE 流式接收 ──
       const assistantMsgId = generateId();
@@ -462,7 +742,6 @@ export default function ChatPage() {
       let streamTimestamp = '';
       let streamDepth = 0;
 
-      // 先插入一条空的 assistant 消息（立即显示气泡）
       setSessions((prev) =>
         prev.map((s) =>
           s.id === sessionId
@@ -489,10 +768,8 @@ export default function ChatPage() {
           const { done, value } = await reader.read();
           if (done) break;
           sseBuffer += decoder.decode(value, { stream: true });
-
           const lines = sseBuffer.split('\n');
           sseBuffer = lines.pop() || '';
-
           let currentEvent = '';
           for (const line of lines) {
             if (line.startsWith('event: ')) {
@@ -507,7 +784,6 @@ export default function ChatPage() {
                 currentEvent = '';
 
                 if (evtType === 'token' || (evt.content && evt.accumulated !== undefined)) {
-                  // token 事件：逐字追加
                   streamContent = evt.accumulated;
                   setSessions((prev) =>
                     prev.map((s) =>
@@ -517,14 +793,13 @@ export default function ChatPage() {
                             messages: s.messages.map((m) =>
                               m.id === assistantMsgId
                                 ? { ...m, content: streamContent, _streaming: true }
-                                : m
+                                : m,
                             ),
                           }
                         : s,
                     ),
                   );
                 } else if (evt.tool_calls) {
-                  // tool_calls 事件：显示工具调用信息
                   const toolInfo = evt.tool_calls.map((tc: { name: string }) => tc.name).join(', ');
                   streamContent += `\n\n🔧 调用工具: ${toolInfo}\n\n`;
                   setSessions((prev) =>
@@ -535,14 +810,13 @@ export default function ChatPage() {
                             messages: s.messages.map((m) =>
                               m.id === assistantMsgId
                                 ? { ...m, content: streamContent, _streaming: true }
-                                : m
+                                : m,
                             ),
                           }
                         : s,
                     ),
                   );
                 } else if (evt.tool_start) {
-                  // 工具开始执行
                   streamContent += `⏳ ${evt.tool_name || evt.name}...\n`;
                   setSessions((prev) =>
                     prev.map((s) =>
@@ -552,14 +826,13 @@ export default function ChatPage() {
                             messages: s.messages.map((m) =>
                               m.id === assistantMsgId
                                 ? { ...m, content: streamContent, _streaming: true }
-                                : m
+                                : m,
                             ),
                           }
                         : s,
                     ),
                   );
                 } else if (evt.tool_result) {
-                  // 工具执行完成
                   streamContent += `✅ ${evt.name} 完成\n`;
                   setSessions((prev) =>
                     prev.map((s) =>
@@ -569,19 +842,17 @@ export default function ChatPage() {
                             messages: s.messages.map((m) =>
                               m.id === assistantMsgId
                                 ? { ...m, content: streamContent, _streaming: true }
-                                : m
+                                : m,
                             ),
                           }
                         : s,
                     ),
                   );
                 } else if (evt.token_used !== undefined) {
-                  // done 事件：最终元数据
                   streamTokenUsed = evt.token_used || 0;
                   streamTimestamp = evt.timestamp || new Date().toISOString();
                   streamDepth = evt.tool_call_depth || 0;
                   streamReasoning = evt.reasoning_content || '';
-                  // 最终更新消息（移除 _streaming 标记）
                   setSessions((prev) =>
                     prev.map((s) =>
                       s.id === sessionId
@@ -598,14 +869,13 @@ export default function ChatPage() {
                                     tool_call_depth: streamDepth,
                                     _streaming: false,
                                   }
-                                : m
+                                : m,
                             ),
                           }
                         : s,
                     ),
                   );
                 } else if (evt.error) {
-                  // 错误事件
                   streamContent = `[错误] ${evt.error}`;
                   setSessions((prev) =>
                     prev.map((s) =>
@@ -615,7 +885,7 @@ export default function ChatPage() {
                             messages: s.messages.map((m) =>
                               m.id === assistantMsgId
                                 ? { ...m, content: streamContent, _streaming: false }
-                                : m
+                                : m,
                             ),
                           }
                         : s,
@@ -623,7 +893,7 @@ export default function ChatPage() {
                   );
                 }
               } catch {
-                // 非 JSON 行，跳过
+                // 忽略非 JSON 行
               }
             }
           }
@@ -638,7 +908,6 @@ export default function ChatPage() {
         content: `[错误] ${(err as Error).message}`,
         timestamp: new Date().toISOString(),
       };
-
       setSessions((prev) =>
         prev.map((s) =>
           s.id === sessionId
@@ -649,339 +918,79 @@ export default function ChatPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [input, isLoading, activeSession, sessions]);
+  }, [input, isLoading, activeSession, sessions, uploadedImages]);
 
-  // ── 确认注入消息 → 自动触发 AI 响应 ──
+  // ── 图片上传 ──
 
-  const confirmInject = useCallback(async (msg: InjectMessage) => {
-    try {
-      // 1. 队列消费
-      await fetch(`/api/inject/pending/${msg.id}`, { method: 'DELETE' });
-      setInjectMessages((prev) => prev.filter((m) => m.id !== msg.id));
-
-      if (!activeSession) return;
-
-      // 2. 注入内容作为用户消息入会话
-      const injectContent = `[外部注入 · ${msg.source}] ${msg.content}`;
-      const injectMsg: Message = {
-        id: generateId(),
-        role: 'user',
-        content: injectContent,
-        timestamp: new Date().toISOString(),
+  const handleImageSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    Array.from(files).forEach((file) => {
+      if (!file.type.startsWith('image/')) return;
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const dataUrl = event.target?.result as string;
+        setUploadedImages((prev) => [...prev, dataUrl]);
       };
-      const sessionId = activeSession.id;
-      setSessions((prev) =>
-        prev.map((s) =>
-          s.id === sessionId
-            ? { ...s, messages: [...s.messages, injectMsg] }
-            : s,
-        ),
-      );
-
-      // 3. 自动触发 AI 响应
-      setIsLoading(true);
-
-      const currentSession = sessions.find((s) => s.id === sessionId);
-      const history = (currentSession?.messages ?? []).map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
-
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: injectContent,
-          model: currentSession?.model ?? DEFAULT_MODEL,
-          conversation_history: history,
-          session_id: sessionId,
-        }),
-      });
-
-      if (!res.ok) {
-        throw new Error(`API error: ${res.status}`);
-      }
-
-      const data = await res.json();
-
-      const assistantMsgWithModel: Message = {
-        id: generateId(),
-        role: 'assistant',
-        content: data.content,
-        reasoning_content: data.reasoning_content,
-        timestamp: data.timestamp,
-        token_used: data.token_used,
-        senderModel: currentSession?.model ?? DEFAULT_MODEL,
-      };
-
-      setSessions((prev) =>
-        prev.map((s) =>
-          s.id === sessionId
-            ? { ...s, messages: [...s.messages, assistantMsgWithModel] }
-            : s,
-        ),
-      );
-    } catch (err) {
-      // 错误 → 在会话中显示错误消息
-      const errorMsg: Message = {
-        id: generateId(),
-        role: 'assistant',
-        content: `[错误] ${(err as Error).message}`,
-        timestamp: new Date().toISOString(),
-      };
-      if (activeSession) {
-        setSessions((prev) =>
-          prev.map((s) =>
-            s.id === activeSession.id
-              ? { ...s, messages: [...s.messages, errorMsg] }
-              : s,
-          ),
-        );
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  }, [activeSession, sessions]);
-
-  // ── 复制消息 ──
-
-  const copyMessage = useCallback(async (content: string, msgId: string) => {
-    await navigator.clipboard.writeText(content);
-    setCopiedId(msgId);
-    setTimeout(() => setCopiedId(null), 2000);
+      reader.readAsDataURL(file);
+    });
+    e.target.value = '';
   }, []);
 
-  // ── 键盘事件 ──
+  const removeImage = useCallback((index: number) => {
+    setUploadedImages((prev) => prev.filter((_, i) => i !== index));
+  }, []);
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        sendMessage();
-      }
-    },
-    [sendMessage],
-  );
+  // ══════════════════════════════════════════════════════════════
+  // Render
+  // ══════════════════════════════════════════════════════════════
 
   return (
     <div className="flex h-full">
-      {/* ── 左侧会话列表 ── */}
-      <div className="w-56 bg-gray-900 border-r border-gray-800 flex flex-col shrink-0">
-        <div className="p-3 border-b border-gray-800">
-          <button
-            onClick={createSession}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-primary-600 hover:bg-primary-700 rounded-lg text-sm transition-colors"
-          >
-            <Plus size={16} />
-            新对话
-          </button>
-        </div>
+      {/* 左侧：会话列表 */}
+      <SessionSidebar
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+        onSelectSession={setActiveSessionId}
+        onCreateSession={createSession}
+        onDeleteSession={deleteSession}
+      />
 
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
-          {sessions.map((session) => (
-            <div
-              key={session.id}
-              className={`group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer text-sm transition-colors ${
-                activeSessionId === session.id
-                  ? 'bg-primary-600/20 text-primary-300'
-                  : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
-              }`}
-              onClick={() => setActiveSessionId(session.id)}
-            >
-              <span className="flex-1 truncate">{session.title}</span>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  deleteSession(session.id);
-                }}
-                className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 transition-opacity"
-              >
-                <Trash2 size={14} />
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* ── 主聊天区 ── */}
+      {/* 右侧：主聊天区 */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* 注入消息通知栏 */}
-        {injectMessages.length > 0 && (
-          <div className="bg-yellow-900/30 border-b border-yellow-700/50 px-4 py-2">
-            {injectMessages.map((msg) => (
-              <div
-                key={msg.id}
-                className="flex items-center justify-between text-sm"
-              >
-                <span className="text-yellow-300">
-                  <Zap size={14} className="inline mr-1" />
-                  [{msg.source}] {msg.content}
-                </span>
-                <button
-                  onClick={() => confirmInject(msg)}
-                  className="text-xs px-2 py-1 bg-yellow-700 hover:bg-yellow-600 rounded text-yellow-100 ml-2"
-                >
-                  注入对话
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
+        {/* 顶部状态栏 */}
+        <TaskStatusPanel
+          activeTasks={activeTasks}
+          injectMessages={injectMessages}
+          onConfirmInject={confirmInject}
+          onClearTasks={() => setActiveTasks([])}
+        />
 
-        {/* 消息列表 */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-          {!activeSession && (
-            <div className="flex items-center justify-center h-full text-gray-500">
-              <div className="text-center">
-                <Zap size={48} className="mx-auto mb-4 text-primary-600" />
-                <p className="text-lg mb-2">Mainfold Agent</p>
-                <p className="text-sm">流形导航 × MemPalace</p>
-                <button
-                  onClick={createSession}
-                  className="mt-4 px-4 py-2 bg-primary-600 hover:bg-primary-700 rounded-lg text-sm transition-colors"
-                >
-                  开始对话
-                </button>
-              </div>
-            </div>
-          )}
+        {/* 消息列表（内含滚动锚点 ref） */}
+        <MessageList
+          messages={activeSession?.messages ?? []}
+          isLoading={isLoading}
+          agentStatus={agentStatus}
+          activeSession={activeSession}
+          copiedId={copiedId}
+          onCopyMessage={copyMessage}
+          onCreateSession={createSession}
+          messagesEndRef={messagesEndRef}
+        />
 
-          {activeSession?.messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={`flex ${
-                msg.role === 'user' ? 'justify-end' : 'justify-start'
-              }`}
-            >
-              <div
-                className={`max-w-[80%] rounded-lg px-4 py-3 ${
-                  msg.role === 'user'
-                    ? 'bg-primary-600 text-white'
-                    : 'bg-gray-800 text-gray-200'
-                }`}
-              >
-                {/* R1 推理过程 */}
-                {msg.role === 'assistant' && msg.reasoning_content && (
-                  <ReasoningBlock content={msg.reasoning_content} />
-                )}
-
-                {/* 消息内容 */}
-                <div className="whitespace-pre-wrap text-sm">{msg.content}</div>
-
-                {/* 元数据 */}
-                {msg.role === 'assistant' && (
-                  <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-700/50">
-                    {msg.token_used && <TokenBar tokens={msg.token_used} />}
-                    <button
-                      onClick={() => copyMessage(msg.content, msg.id)}
-                      className="text-gray-500 hover:text-gray-300 ml-auto"
-                    >
-                      {copiedId === msg.id ? (
-                        <Check size={14} />
-                      ) : (
-                        <Copy size={14} />
-                      )}
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-
-          {isLoading && (
-            <div className="flex justify-start">
-              <div className="bg-gray-800 rounded-lg px-4 py-3 text-gray-400 text-sm max-w-[85%] min-w-[240px]">
-                {/* 当前阶段指示器 */}
-                <div className="flex items-center gap-2 mb-1">
-                  <span
-                    className={`w-2.5 h-2.5 rounded-full animate-pulse ${
-                      agentStatus
-                        ? (AGENT_PHASE_CONFIG[agentStatus.phase]?.color ?? 'bg-blue-400')
-                        : 'bg-blue-400'
-                    }`}
-                  />
-                  <span className="font-medium text-gray-300">
-                    {agentStatus
-                      ? (AGENT_PHASE_CONFIG[agentStatus.phase]?.label ?? '处理中')
-                      : '处理中'}
-                  </span>
-                  {agentStatus && agentStatus.elapsed > 2 && (
-                    <span className="text-xs text-gray-600 ml-auto">
-                      {agentStatus.elapsed < 60
-                        ? `${agentStatus.elapsed}s`
-                        : `${Math.floor(agentStatus.elapsed / 60)}m${agentStatus.elapsed % 60}s`}
-                    </span>
-                  )}
-                </div>
-
-                {/* 当前详情 */}
-                <div className="text-xs text-gray-500">
-                  {agentStatus?.detail ?? '初始化...'}
-                </div>
-
-                {/* 文件路径（如有） */}
-                {agentStatus?.filePath && (
-                  <div className="text-[11px] text-gray-600 mt-0.5 truncate font-mono"
-                    title={agentStatus.filePath}>
-                    {agentStatus.filePath.length > 70
-                      ? '...' + agentStatus.filePath.slice(-67)
-                      : agentStatus.filePath}
-                  </div>
-                )}
-
-                {/* 工具名（如有且非 read/write 已显示路径） */}
-                {agentStatus?.toolName && agentStatus.phase === 'tool' && !agentStatus.filePath && (
-                  <div className="text-[11px] text-gray-600 mt-0.5">
-                    {agentStatus.toolName}
-                  </div>
-                )}
-
-                {/* 最近历史轨迹（最后 3 条，不含当前） */}
-                {agentStatus && agentStatus.history.length > 1 && (
-                  <div className="mt-2 pt-2 border-t border-gray-700/50 space-y-0.5">
-                    {agentStatus.history.slice(-4, -1).map((h, i) => (
-                      <div key={i} className="text-[11px] text-gray-600 flex items-center gap-1">
-                        <span className="text-gray-700">└</span>
-                        <span>{h.detail}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* 输入框 */}
+        {/* 底部输入框 */}
         {activeSession && (
-          <div className="px-6 py-4 border-t border-gray-800 bg-gray-900/50">
-            <div className="flex gap-3 items-end">
-              <textarea
-                ref={inputRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="输入消息... (Enter 发送，Shift+Enter 换行)"
-                className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-sm text-gray-200 placeholder-gray-500 resize-none focus:outline-none focus:border-primary-500 transition-colors"
-                rows={1}
-                style={{ minHeight: '44px', maxHeight: '120px' }}
-                onInput={(e) => {
-                  const target = e.target as HTMLTextAreaElement;
-                  target.style.height = 'auto';
-                  target.style.height = `${Math.min(target.scrollHeight, 120)}px`;
-                }}
-              />
-              <button
-                onClick={sendMessage}
-                disabled={!input.trim() || isLoading}
-                className="px-4 py-3 bg-primary-600 hover:bg-primary-700 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg text-sm transition-colors"
-              >
-                <Send size={18} />
-              </button>
-            </div>
-          </div>
+          <InputBar
+            input={input}
+            onInputChange={setInput}
+            isLoading={isLoading}
+            onSendMessage={sendMessage}
+            inputRef={inputRef}
+            fileInputRef={fileInputRef}
+            uploadedImages={uploadedImages}
+            onImageSelect={handleImageSelect}
+            onRemoveImage={removeImage}
+          />
         )}
       </div>
     </div>

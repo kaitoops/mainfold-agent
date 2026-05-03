@@ -1,0 +1,1 @@
+{"message":"请执行浏览器功能验证：1.调用browser_status 2.调用browser_navigate打开https://example.com 3.调用browser_extract提取内容"}

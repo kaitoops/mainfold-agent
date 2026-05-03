@@ -1,0 +1,6 @@
+{
+  "content": "[WorkBuddy 浏览器功能验证指令]\n\n请立即执行以下测试，验证浏览器自动化是否正常工作：\n\n1. 调用 `browser_status` 查看当前状态\n2. 调用 `browser_navigate` 打开 https://example.com\n3. 调用 `browser_extract` 提取该页面内容\n\n注意：\n- 不需要先\"启动\"浏览器，`browser_navigate` 会自动启动\n- 没有 `browser_launch` 这个工具\n- 直接调用上述三个工具即可\n\n完成后报告每个工具的返回结果。",
+  "source": "workbuddy",
+  "priority": 1,
+  "tags": ["browser", "test", "i-browser-001"]
+}

@@ -1,0 +1,7 @@
+{
+  "message": "使用 web_fetch 工具获取 https://docs.deepseek.com 的内容摘要",
+  "model": "deepseek-v3",
+  "stream": false,
+  "conversation_history": [],
+  "session_id": "test-webfetch-001"
+}

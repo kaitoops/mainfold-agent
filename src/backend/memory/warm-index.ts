@@ -18,11 +18,26 @@ import * as fs from 'fs';
 
 // ── 类型 ──
 
+// ── 暖记忆条目类型（WorkBuddy 移植扩展） ──
+
+export type WarmEntryType =
+  | 'conversation'
+  | 'tool_operation'
+  | 'technical_pattern'
+  | 'error_lesson'
+  | 'system_event'
+  | 'friction_point'       // 新增：摩擦点记录（WorkBuddy execution-observation.json）
+  | 'repair_evaluation'    // 新增：修复效果评估（WorkBuddy repair-evaluation.json）
+  | 'business_pattern'     // 新增：商业模式（WorkBuddy business-patterns.json）
+  | 'security_issue'       // 新增：安全问题（WorkBuddy security-issues.json）
+  | 'workflow_pattern'     // 新增：工作流模式（WorkBuddy workflow-automation.json）
+  | 'observation_metric';  // 新增：观察指标（WorkBuddy search-strategies.json）
+
 export interface WarmEntry {
   /** 唯一 ID */
   id: string;
   /** 条目类型 */
-  type: 'conversation' | 'tool_operation' | 'technical_pattern' | 'error_lesson' | 'system_event';
+  type: WarmEntryType;
   /** 简短标题（100 字以内） */
   title: string;
   /** 详细内容摘要 */
